@@ -1,6 +1,6 @@
 -- (C) Copyright 2019, Hans-Dieter Hiep
 
-import data.finmap data.bool
+import data.finmap data.bool data.vector data.list
 
 variables (α : Type) (β : Type)
 
@@ -39,9 +39,19 @@ inductive type [global_names α] : Type 1
 --| future: type -> type
 | data: Type -> type
 
+instance Type_to_type [global_names α] : has_coe Type (type α) :=
+    ⟨type.data α⟩
+
 def type.void [global_names α] : type α := type.data α unit
 
 open type
+
+/-
+A variable context is a list of types;
+we employ De Bruijn encoding for indexing in this context.
+-/
+@[reducible]
+def context [global_names α] : Type 1 := list (type α)
 
 /-
 A program signature consists of:
@@ -58,7 +68,7 @@ a return type and a list of types of its parameters.
 
 structure mdecl [global_names α] : Type 1 :=
 (retype : type α)
-(fparam : list (type α))
+(fparam : context α)
 
 structure cdecl [global_names α] (self : α) (H: self ∈ Nc α) : Type 1 :=
 (Mf (x : α) (H: x ∈ Nf self H) : type α)
@@ -67,6 +77,105 @@ structure cdecl [global_names α] (self : α) (H: self ∈ Nc α) : Type 1 :=
 structure signature [global_names α] : Type 1 :=
 (Mc (x : α) (H: x ∈ Nc α): cdecl α x H)
 (main (x : α): x ∈ Nc α)
+
+/-
+A method is a particular path within a signature.
+Given a method, we know its enclosing class name.
+-/
+structure method [global_names α] : Type 1 :=
+(sig : signature α) (self : α) (m : α) (H: self ∈ Nc α) (G: m ∈ Nm self H)
+
+def method.fparam [global_names α] (m : method α) : context α :=
+    ((m.sig.Mc m.self m.H).Mm m.m m.G).fparam
+def method.retype [global_names α] (m : method α) : type α :=
+    ((m.sig.Mc m.self m.H).Mm m.m m.G).retype
+def method.thtype [global_names α] (m : method α) : type α :=
+    ref m.self m.H
+
+/-
+We consider typing environments to consist of:
+a method, and
+a context of local variables.
+
+Within a typing environment, we refer to numerous things.
+An argument refers to the
+type and its index within the formal parameters of its method.
+A local variable refers to the
+type and its index within the context of local variables.
+A variable refers to either an argument or a local variable.
+A fieldref refers to a field within the enclosed class.
+-/
+
+structure tenv [global_names α] : Type 1 :=
+(method : method α)
+(locals : context α)
+
+-- TODO: replace ∈ by non-Prop at type, that contains info on position
+
+structure arg [global_names α] (e : tenv α) : Type 1 :=
+(type : type α) (idx : type ∈ e.method.fparam α)
+
+structure lvar [global_names α] (e : tenv α) : Type 1 :=
+(type : type α) (idx : type ∈ e.locals)
+
+def var [global_names α] (e : tenv α) : Type 1 := sum (arg α e) (lvar α e)
+
+-- TODO: introduce variants of arg, lval and var that enforce a type
+
+def var.type [global_names α] {e : tenv α} (v : var α e) : type α :=
+sorry -- TODO
+
+structure fieldref [global_names α] (e : tenv α) : Type 1 :=
+(x : true) -- TODO
+
+def fieldref.type [global_names α] {e : tenv α} (f : fieldref α e) : type α :=
+sorry -- TODO
+
+structure pure [global_names α] (e : tenv α) (t : type α) : Type 1 :=
+(x : true) -- TODO
+
+/-
+A statement within a typing environment is either:
+a skip,
+a sequential composition,
+a branch,
+a loop,
+a field assignment,
+a local assignment,
+an asynchronous method call,
+an object allocation.
+-/
+inductive stmt [global_names α] (e : tenv α) : Type 1
+| skip: stmt
+| seq: stmt → stmt → stmt
+| ite: pure α e bool → stmt → stmt → stmt
+| while: pure α e bool → stmt → stmt
+| set (f : fieldref α e): pure α e f.type → stmt
+| set (l : lvar α e): pure α e l.type → stmt
+| async (m : methodref α) (r : lvar' α m.thtype) (τ : arglist α e m)
+    (l : lvar' α e m.retype): stmt
+| alloc (c : classref α) (l : lvar' α c.type): stmt
+
+/-
+A program with a given program signature associates
+to each method of each class a program block.
+
+A program block associated to a method consists of:
+local variable declarations,
+a statement within a typing environment, and
+a return of a pure expression within a typing environment.
+The type of the pure expressions is the return type of the method.
+
+A pure expression takes an assignment and produces a value of some type.
+-/
+
+structure pblock [global_names α] (m : mth α) : Type 1 :=
+(flocal : context α)
+(S : stmt α (tenv.mk m flocal))
+(return : pure α (tenv.mk m flocal) m.retype)
+
+structure program [global_names α] (sig : signature α) : Type 1 :=
+(Mp (m : mth α): true)
 
 /-
 We treat objects transparently.
