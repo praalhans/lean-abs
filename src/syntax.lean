@@ -1,10 +1,8 @@
 -- (C) Copyright 2019, Hans-Dieter Hiep
 
-import data.finmap data.fintype
+import data.finmap data.bool
 
-section syntax
-
-variable (α : Type)
+variables (α : Type) (β : Type)
 
 -- Names have decidable equality.
 class names := (deceq: decidable_eq α)
@@ -37,9 +35,13 @@ a future of some type,
 or a data type from the host language.
 -/
 inductive type [global_names α] : Type 1
-| reference (x : α) (H: x ∈ Nc α): type
-| future: type -> type
+| ref (x : α) (H: x ∈ Nc α): type
+--| future: type -> type
 | data: Type -> type
+
+def type.void [global_names α] : type α := type.data α unit
+
+open type
 
 /-
 A program signature consists of:
@@ -66,4 +68,26 @@ structure signature [global_names α] : Type 1 :=
 (Mc (x : α) (H: x ∈ Nc α): cdecl α x H)
 (main (x : α): x ∈ Nc α)
 
-end syntax
+/-
+We treat objects transparently.
+Each object is associated to a single class name.
+Given a set of objects, we can always construct some new object.
+-/
+class objects [global_names α] :=
+(classof: β → {x // x ∈ Nc α})
+(new: finset β → β)
+(new_is_new: ∀x : finset β, (new x) ∉ x)
+
+def objects.refof [global_names α] [objects α β] (o : β) : type α :=
+    let i := objects.classof α o in ref i.val i.property
+
+open objects
+
+/-
+We treat values as being of a type.
+A value of a reference type is an object of the same class.
+A value of a data type is a term of the type in the host language.
+-/
+inductive value [global_names α] [objects α β] : type α → Type 1
+| obj (o : β) : value (refof α β o)
+| term {γ : Type} (o : γ) : value (data α γ)
