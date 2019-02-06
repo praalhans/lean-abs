@@ -2,7 +2,8 @@
 
 import data.finmap data.bool data.vector data.list
 
-variables (α : Type) (β : Type)
+universes u
+variables (α : Type)
 
 -- Names have decidable equality.
 class names := (deceq: decidable_eq α)
@@ -28,6 +29,15 @@ class global_names (α : Type) extends names α :=
 (Nm (x : α) (H: x ∈ Nc): finset α)
 open global_names
 
+structure class_name [global_names α] :=
+(name : α) (H : name ∈ Nc α)
+
+structure field_name {α : Type} [global_names α] (self : class_name α) :=
+(name : α) (H: name ∈ Nf self.name self.H)
+
+structure method_name {α : Type} [global_names α] (self : class_name α) :=
+(name : α) (H: name ∈ Nm self.name self.H)
+
 /-
 A type in our object language is either:
 a reference type (by class name),
@@ -35,9 +45,9 @@ a future of some type,
 or a data type from the host language.
 -/
 inductive type [global_names α] : Type 1
-| ref (x : α) (H: x ∈ Nc α): type
---| future: type -> type
-| data: Type -> type
+| ref: class_name α → type
+--| future: type → type
+| data: Type → type
 
 instance Type_to_type [global_names α] : has_coe Type (type α) :=
     ⟨type.data α⟩
@@ -70,68 +80,117 @@ structure mdecl [global_names α] : Type 1 :=
 (retype : type α)
 (fparam : context α)
 
-structure cdecl [global_names α] (self : α) (H: self ∈ Nc α) : Type 1 :=
-(Mf (x : α) (H: x ∈ Nf self H) : type α)
-(Mm (x : α) (H: x ∈ Nm self H) : mdecl α)
+structure cdecl {α : Type} [global_names α] (self : class_name α) : Type 1 :=
+(fdecl : field_name self → type α)
+(mdecl : method_name self → mdecl α)
 
 structure signature [global_names α] : Type 1 :=
-(Mc (x : α) (H: x ∈ Nc α): cdecl α x H)
-(main (x : α): x ∈ Nc α)
+(cdecl (x : class_name α): cdecl x)
+(main: class_name α)
+
+def signature.method_params {α : Type} [global_names α] (sig : signature α)
+{self : class_name α} (m : method_name self) : context α :=
+    ((sig.cdecl self).mdecl m).fparam
+
+def signature.return_type {α : Type} [global_names α] (sig : signature α)
+{self : class_name α} (m : method_name self) : type α :=
+    ((sig.cdecl self).mdecl m).retype
+
+def signature.field_type {α : Type} [global_names α] (sig : signature α)
+{self : class_name α} (f : field_name self) : type α :=
+    (sig.cdecl self).fdecl f
 
 /-
-A method is a particular path within a signature.
-Given a method, we know its enclosing class name.
+A field reference witnesses that a field
+has a type in a given signature.
 -/
-structure method [global_names α] : Type 1 :=
-(sig : signature α) (self : α) (m : α) (H: self ∈ Nc α) (G: m ∈ Nm self H)
-
-def method.fparam [global_names α] (m : method α) : context α :=
-    ((m.sig.Mc m.self m.H).Mm m.m m.G).fparam
-def method.retype [global_names α] (m : method α) : type α :=
-    ((m.sig.Mc m.self m.H).Mm m.m m.G).retype
-def method.thtype [global_names α] (m : method α) : type α :=
-    ref m.self m.H
+def fieldref {α : Type} [global_names α] (sig : signature α)
+{self : class_name α} (f : field_name self) (ty : type α) : Prop :=
+    ty = sig.field_type f
 
 /-
-We consider typing environments to consist of:
-a method, and
-a context of local variables.
-
-Within a typing environment, we refer to numerous things.
-An argument refers to the
-type and its index within the formal parameters of its method.
-A local variable refers to the
-type and its index within the context of local variables.
-A variable refers to either an argument or a local variable.
-A fieldref refers to a field within the enclosed class.
+We consider type environments to consist of:
+a signature,
+a return type,
+a method reference, and
+declared local variables.
 -/
-
 structure tenv [global_names α] : Type 1 :=
-(method : method α)
+(sig : signature α)
+(self : class_name α)
+(current : method_name self)
 (locals : context α)
 
--- TODO: replace ∈ by non-Prop at type, that contains info on position
+-- We introduce a non-Prop ∈ that contains position witness
+inductive list_at {α : Type u} : α → list α → Type u
+| head (x : α) (xs : list α): list_at x (x :: xs)
+| tail (x y : α) (l : list α): list_at x l → list_at x (y :: l)
 
-structure arg [global_names α] (e : tenv α) : Type 1 :=
-(type : type α) (idx : type ∈ e.method.fparam α)
+lemma list_at_mem (x : α) (l : list α) : list_at x l → x ∈ l :=
+begin
+    intro H,
+    induction l,
+    cases H,
+    cases H,
+    constructor, refl,
+    have: x ∈ l_tl,
+        apply l_ih, assumption,
+    right, assumption
+end
 
-structure lvar [global_names α] (e : tenv α) : Type 1 :=
-(type : type α) (idx : type ∈ e.locals)
+/-
+A note on terminology.
+Parameter: as declared in signature
+Argument: as supplied in a method call
+-/
 
-def var [global_names α] (e : tenv α) : Type 1 := sum (arg α e) (lvar α e)
+/-
+Within a typing environment, we refer to numerous things.
+A parameter refers to the
+index within the parameters of the current method.
+A local refers to the
+index within the declared local variables.
+A field refers to a field within the enclosed class.
+A variable refers to either an argument, a local, or a field.
+-/
 
--- TODO: introduce variants of arg, lval and var that enforce a type
+structure pvar {α : Type} [global_names α] (e : tenv α)
+(ty : type α) : Type 1 :=
+(idx : list_at ty (e.sig.method_params e.current))
 
-def var.type [global_names α] {e : tenv α} (v : var α e) : type α :=
-sorry -- TODO
+structure lvar {α : Type} [global_names α] (e : tenv α)
+(ty : type α) : Type 1 :=
+(idx : list_at ty e.locals)
 
-structure fieldref [global_names α] (e : tenv α) : Type 1 :=
-(x : true) -- TODO
+structure fvar {α : Type} [global_names α] (e : tenv α)
+(ty : type α) : Type 1 :=
+(field : field_name e.self)
+(H : fieldref e.sig field ty)
 
-def fieldref.type [global_names α] {e : tenv α} (f : fieldref α e) : type α :=
-sorry -- TODO
+def svar {α : Type} [global_names α] (e : tenv α)
+(ty : type α) : Type 1 :=
+    (lvar e ty) ⊕ (fvar e ty)
 
-structure pure [global_names α] (e : tenv α) (t : type α) : Type 1 :=
+def rvar {α : Type} [global_names α] (e : tenv α)
+(ty : type α) : Type 1 :=
+    (pvar e ty) ⊕ (lvar e ty) ⊕ (fvar e ty)
+
+/-
+Given a method reference and a signature,
+we have an argument list of variables with matching types.
+Argument lists are constructed inductively over lists of types.
+-/
+inductive arglist {α : Type} [global_names α] (e : tenv α) :
+list (type α) → Type 1
+| nil : arglist []
+| cons (x : type α) (xs : list (type α)) :
+    rvar e x → arglist xs → arglist (x::xs)
+
+/-
+A pure expression evaluates to a value of a particular type.
+-/
+
+structure pure {α : Type} [global_names α] (e : tenv α) (t : type α) : Type 1 :=
 (x : true) -- TODO
 
 /-
@@ -145,16 +204,18 @@ a local assignment,
 an asynchronous method call,
 an object allocation.
 -/
-inductive stmt [global_names α] (e : tenv α) : Type 1
+inductive stmt {α : Type} [global_names α] (e : tenv α) : Type 1
 | skip: stmt
 | seq: stmt → stmt → stmt
-| ite: pure α e bool → stmt → stmt → stmt
-| while: pure α e bool → stmt → stmt
-| set (f : fieldref α e): pure α e f.type → stmt
-| set (l : lvar α e): pure α e l.type → stmt
-| async (m : methodref α) (r : lvar' α m.thtype) (τ : arglist α e m)
-    (l : lvar' α e m.retype): stmt
-| alloc (c : classref α) (l : lvar' α c.type): stmt
+| ite: pure e bool → stmt → stmt → stmt
+| while: pure e bool → stmt → stmt
+-- store in l the value of expr
+| assign {ty : type α} (l : svar e ty): pure e ty → stmt
+-- call method m, on object in r, with args τ
+| async (c : class_name α) (r : rvar e (ref c))
+    (m : method_name c) (τ : arglist e (e.sig.method_params m)): stmt
+-- allocate new object of class c and store in l
+| alloc (c : class_name α) (l : svar e (ref c)): stmt
 
 /-
 A program with a given program signature associates
@@ -169,34 +230,11 @@ The type of the pure expressions is the return type of the method.
 A pure expression takes an assignment and produces a value of some type.
 -/
 
-structure pblock [global_names α] (m : mth α) : Type 1 :=
-(flocal : context α)
-(S : stmt α (tenv.mk m flocal))
-(return : pure α (tenv.mk m flocal) m.retype)
+structure pblock {α : Type} [global_names α]
+(sig : signature α) {self : class_name α} (m : method_name self) : Type 1 :=
+(locals : context α)
+(S : stmt (tenv.mk sig self m locals))
+(return : pure (tenv.mk sig self m locals) (sig.return_type m))
 
-structure program [global_names α] (sig : signature α) : Type 1 :=
-(Mp (m : mth α): true)
-
-/-
-We treat objects transparently.
-Each object is associated to a single class name.
-Given a set of objects, we can always construct some new object.
--/
-class objects [global_names α] :=
-(classof: β → {x // x ∈ Nc α})
-(new: finset β → β)
-(new_is_new: ∀x : finset β, (new x) ∉ x)
-
-def objects.refof [global_names α] [objects α β] (o : β) : type α :=
-    let i := objects.classof α o in ref i.val i.property
-
-open objects
-
-/-
-We treat values as being of a type.
-A value of a reference type is an object of the same class.
-A value of a data type is a term of the type in the host language.
--/
-inductive value [global_names α] [objects α β] : type α → Type 1
-| obj (o : β) : value (refof α β o)
-| term {γ : Type} (o : γ) : value (data α γ)
+structure program {α : Type} [global_names α] (sig : signature α) : Type 1 :=
+(body (self : class_name α) (m : method_name self): pblock sig m)
