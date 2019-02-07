@@ -5,13 +5,12 @@ import syntax
 open signature type pexp
 
 /-
-We have the following class of dynamic sets.
+We have the following class of dynamic types.
 Given a finite set,
 there can always be given a fresh instance not in that set.
 (with thanks to Johannes Hölzl)
 -/
 class dynamic (β : Type) :=
-(oequal: β → β → bool)
 (fresh: finset β → β)
 (fresh_is_new: ∀x : finset β, (fresh x) ∉ x)
 open dynamic
@@ -20,16 +19,12 @@ open dynamic
 Fix a signature (and global names).
 We treat objects transparently.
 Each object is associated to a single class name.
-Equality is decidable for objects.
+Equality is decidable for objects of the same class.
 Given a set of objects, we can always construct some new object.
 -/
 class objects (α β : Type) extends signature α, dynamic β :=
 (class_of: β → class_name α)
-
-def objects.type_of (α : Type) {β : Type} [objects α β]
-(o : β) : type α :=
-    ref (objects.class_of α o)
-
+(equality (x y : β): class_of x = class_of y → bool)
 open objects
 
 /-
@@ -38,8 +33,33 @@ A value of a reference type is an object of the same class.
 A value of a data type is a term of the type in the host language.
 -/
 inductive value {α : Type} (β : Type) [objects α β] : type α → Type 1
-| obj (o : β) : value (type_of α o)
+| object (o : β) : value (ref (class_of α o))
 | term {γ : Type} : γ → value (data α γ)
+
+-- Projection of value to object
+def value.objective {α β : Type} [objects α β] {c : class_name α}
+(x : value β (ref c)) : β :=
+begin cases x, apply x_1 end
+
+lemma value.obj_class {α β : Type} [objects α β] {c : class_name α}
+(x : value β (ref c)) : class_of α (value.objective x) = c :=
+begin cases x, unfold value.objective end
+
+-- Projection of value to term
+def value.terminal {α : Type} (β : Type) [objects α β] {γ : Type}
+(x : value β (data α γ)) : γ :=
+begin cases x, apply x_a end
+
+/-
+Given two values of reference type,
+we can decide referential equality.
+-/
+def value.ref_equal {α β : Type} [objects α β] {c : class_name α}
+(x : value β (ref c)) (y : value β (ref c)) : bool :=
+let H : class_of α (value.objective x) =
+    class_of α (value.objective y) := begin
+    repeat {rewrite value.obj_class}
+end in equality (value.objective x) (value.objective y) H
 
 open value
 
@@ -114,7 +134,11 @@ Evaluating a pure expression in an assignment.
 def eval {α β : Type} [objects α β] (e : tenv α) (σ : assignment β e)
 : Π {ty : type α}, pexp e ty → value β ty
 | bool (requal (c : class_name α)
-    (l : pexp e (ref c)) (r : pexp e (ref c))) := sorry
+  (l : pexp e (ref c)) (r : pexp e (ref c))) :=
+    term β (ref_equal (eval l) (eval r))
 | ty (lookup (r : rvar e ty)) := σ.lookup ty r
 | _ (const .(e) (γ : Type) (v : γ)) := term β v
-| (γ : Type) (apply .(γ) δ pl pr) := sorry
+| _ (apply (γ : Type) δ
+  (pl : pexp e (γ → δ))
+  (pr : pexp e γ)) :=
+    term β ((terminal β (eval pl)) (terminal β (eval pr)))
