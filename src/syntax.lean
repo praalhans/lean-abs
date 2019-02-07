@@ -167,10 +167,12 @@ structure fvar {α : Type} [global_names α] (e : tenv α)
 (field : field_name e.self)
 (H : fieldref e.sig field ty)
 
+-- Store variable (LHS only)
 def svar {α : Type} [global_names α] (e : tenv α)
 (ty : type α) : Type 1 :=
     (lvar e ty) ⊕ (fvar e ty)
 
+-- Read variable (RHS only)
 def rvar {α : Type} [global_names α] (e : tenv α)
 (ty : type α) : Type 1 :=
     (pvar e ty) ⊕ (lvar e ty) ⊕ (fvar e ty)
@@ -188,10 +190,18 @@ list (type α) → Type 1
 
 /-
 A pure expression evaluates to a value of a particular type.
+Such expressions are either:
+a constant data value,
+a function application on data values,
+value lookup in environment,
+referential equality check.
 -/
-
-structure pure {α : Type} [global_names α] (e : tenv α) (t : type α) : Type 1 :=
-(x : true) -- TODO
+inductive pure {α : Type} [global_names α] (e : tenv α) :
+type α → Type 1
+| const (γ : Type) (v : γ) : pure γ
+| apply (γ δ : Type) : pure (γ → δ) → pure γ → pure δ
+| lookup {ty : type α} (r : rvar e ty) : pure ty
+| requal (c : class_name α) : pure (ref c) → pure (ref c) → pure bool
 
 /-
 A statement within a typing environment is either:
@@ -199,8 +209,7 @@ a skip,
 a sequential composition,
 a branch,
 a loop,
-a field assignment,
-a local assignment,
+an assignment,
 an asynchronous method call,
 an object allocation.
 -/
@@ -214,7 +223,7 @@ inductive stmt {α : Type} [global_names α] (e : tenv α) : Type 1
 -- call method m, on object in r, with args τ
 | async (c : class_name α) (r : rvar e (ref c))
     (m : method_name c) (τ : arglist e (e.sig.method_params m)): stmt
--- allocate new object of class c and store in l
+-- allocate new object of class c and store reference in l
 | alloc (c : class_name α) (l : svar e (ref c)): stmt
 
 /-
@@ -222,19 +231,14 @@ A program with a given program signature associates
 to each method of each class a program block.
 
 A program block associated to a method consists of:
-local variable declarations,
-a statement within a typing environment, and
-a return of a pure expression within a typing environment.
-The type of the pure expressions is the return type of the method.
-
-A pure expression takes an assignment and produces a value of some type.
+local variable declarations, and
+a statement within a typing environment.
 -/
 
 structure pblock {α : Type} [global_names α]
 (sig : signature α) {self : class_name α} (m : method_name self) : Type 1 :=
 (locals : context α)
 (S : stmt (tenv.mk sig self m locals))
-(return : pure (tenv.mk sig self m locals) (sig.return_type m))
 
 structure program {α : Type} [global_names α] (sig : signature α) : Type 1 :=
 (body (self : class_name α) (m : method_name self): pblock sig m)
