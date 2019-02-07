@@ -17,7 +17,7 @@ class objects [global_names α] :=
 (new: finset β → β)
 (new_is_new: ∀x : finset β, (new x) ∉ x)
 
-def objects.type_of [global_names α] [objects α β] (o : β) : type α :=
+def objects.type_of {β : Type} [global_names α] [objects α β] (o : β) : type α :=
     ref (objects.class_of α o)
 
 open objects
@@ -27,6 +27,33 @@ We treat values as being of a type.
 A value of a reference type is an object of the same class.
 A value of a data type is a term of the type in the host language.
 -/
-inductive value [global_names α] [objects α β] : type α → Type 1
-| obj (o : β) : value (type_of α β o)
-| term {γ : Type} (o : γ) : value (data α γ)
+inductive value {α : Type} [global_names α] [objects α β] : type α → Type 1
+| obj (o : β) : value (type_of α o)
+| term {γ : Type} : γ → value (data α γ)
+
+/-
+Given a signature and class C,
+we have a state space Σ(C) consisting of
+an assignment of fields to values.
+-/
+structure state_space {α : Type} [global_names α] [objects α β] (sig : signature α)
+(self : class_name α) : Type 1 :=
+(map (f : field_name self) : value β (sig.field_type f))
+
+/-
+Given a list of types,
+we have a value list of values with matching types.
+-/
+inductive vallist {α : Type} [global_names α] [objects α β] : list (type α) → Type 1
+| nil : vallist []
+| cons (x : type α) (xs : list (type α)) :
+    value β x → vallist xs → vallist (x::xs)
+
+/-
+Given a signature and method name m,
+we have a argument space Σ(m) consisting
+an assignment of method parameters to values.
+-/
+structure arg_space {α : Type} [global_names α] [objects α β] (sig : signature α)
+{self : class_name α} (m : method_name self) : Type 1 :=
+(map : vallist β (sig.method_params m))

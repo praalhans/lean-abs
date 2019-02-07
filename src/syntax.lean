@@ -1,6 +1,7 @@
 -- (C) Copyright 2019, Hans-Dieter Hiep
 
 import data.finmap data.bool data.vector data.list
+import util
 
 universes u
 variables (α : Type)
@@ -104,9 +105,9 @@ def signature.field_type {α : Type} [global_names α] (sig : signature α)
 A field reference witnesses that a field
 has a type in a given signature.
 -/
-def fieldref {α : Type} [global_names α] (sig : signature α)
-{self : class_name α} (f : field_name self) (ty : type α) : Prop :=
-    ty = sig.field_type f
+inductive fieldref {α : Type} [global_names α] (sig : signature α)
+(self : class_name α) : type α → Type 1
+| mk (f : field_name self) : fieldref (sig.field_type f)
 
 /-
 We consider type environments to consist of:
@@ -120,23 +121,6 @@ structure tenv [global_names α] : Type 1 :=
 (self : class_name α)
 (current : method_name self)
 (locals : context α)
-
--- We introduce a non-Prop ∈ that contains position witness
-inductive list_at {α : Type u} : α → list α → Type u
-| head (x : α) (xs : list α): list_at x (x :: xs)
-| tail (x y : α) (l : list α): list_at x l → list_at x (y :: l)
-
-lemma list_at_mem (x : α) (l : list α) : list_at x l → x ∈ l :=
-begin
-    intro H,
-    induction l,
-    cases H,
-    cases H,
-    constructor, refl,
-    have: x ∈ l_tl,
-        apply l_ih, assumption,
-    right, assumption
-end
 
 /-
 A note on terminology.
@@ -164,8 +148,7 @@ structure lvar {α : Type} [global_names α] (e : tenv α)
 
 structure fvar {α : Type} [global_names α] (e : tenv α)
 (ty : type α) : Type 1 :=
-(field : field_name e.self)
-(H : fieldref e.sig field ty)
+(field : fieldref e.sig e.self ty)
 
 -- Store variable (LHS only)
 def svar {α : Type} [global_names α] (e : tenv α)
@@ -178,9 +161,8 @@ def rvar {α : Type} [global_names α] (e : tenv α)
     (pvar e ty) ⊕ (lvar e ty) ⊕ (fvar e ty)
 
 /-
-Given a method reference and a signature,
+Given a typing environment and a list of types,
 we have an argument list of variables with matching types.
-Argument lists are constructed inductively over lists of types.
 -/
 inductive arglist {α : Type} [global_names α] (e : tenv α) :
 list (type α) → Type 1
