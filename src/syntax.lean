@@ -3,21 +3,8 @@
 import data.finmap data.bool data.vector data.list
 import util
 
-universes u
-variables (α : Type)
-
 -- Names have decidable equality.
-class names := (deceq: decidable_eq α)
-
-/-
-We have the following class of dynamic names.
-Given a finite set of names,
-there can always be given a fresh instance not in that set.
-(with thanks to Johannes Hölzl)
--/
-class dynamic_names extends names α :=
-(fresh: finset α → α)
-(fresh_is_new: ∀x : finset α, (fresh x) ∉ x)
+class names (α : Type) := [deceq: decidable_eq α]
 
 /-
 Each program has global names.
@@ -28,16 +15,15 @@ class global_names (α : Type) extends names α :=
 (Nc: finset α)
 (Nf (x : α) (H: x ∈ Nc): finset α)
 (Nm (x : α) (H: x ∈ Nc): finset α)
-open global_names
 
-structure class_name [global_names α] :=
-(name : α) (H : name ∈ Nc α)
+structure class_name (α : Type) [global_names α] :=
+(name : α) (H : name ∈ global_names.Nc α)
 
 structure field_name {α : Type} [global_names α] (self : class_name α) :=
-(name : α) (H: name ∈ Nf self.name self.H)
+(name : α) (H: name ∈ global_names.Nf self.name self.H)
 
 structure method_name {α : Type} [global_names α] (self : class_name α) :=
-(name : α) (H: name ∈ Nm self.name self.H)
+(name : α) (H: name ∈ global_names.Nm self.name self.H)
 
 /-
 A type in our object language is either:
@@ -45,15 +31,15 @@ a reference type (by class name),
 a future of some type,
 or a data type from the host language.
 -/
-inductive type [global_names α] : Type 1
+inductive type (α : Type) [global_names α] : Type 1
 | ref: class_name α → type
 --| future: type → type
 | data: Type → type
 
-instance Type_to_type [global_names α] : has_coe Type (type α) :=
+instance Type_to_type (α : Type) [global_names α] : has_coe Type (type α) :=
     ⟨type.data α⟩
 
-def type.void [global_names α] : type α := type.data α unit
+def type.void (α : Type) [global_names α] : type α := type.data α unit
 
 open type
 
@@ -62,7 +48,7 @@ A variable context is a list of types;
 we employ De Bruijn encoding for indexing in this context.
 -/
 @[reducible]
-def context [global_names α] : Type 1 := list (type α)
+def context (α : Type) [global_names α] : Type 1 := list (type α)
 
 /-
 A program signature consists of:
@@ -77,39 +63,44 @@ A method declaration consists of:
 a return type and a list of types of its parameters.
 -/
 
-structure mdecl [global_names α] : Type 1 :=
+structure mdecl {α : Type} [global_names α]
+{self : class_name α} (m : method_name self) : Type 1 :=
 (retype : type α)
 (fparam : context α)
 
-structure cdecl {α : Type} [global_names α] (self : class_name α) : Type 1 :=
-(fdecl : field_name self → type α)
-(mdecl : method_name self → mdecl α)
+structure fdecl {α : Type} [global_names α]
+{self : class_name α} (f : field_name self) : Type 1 :=
+(type : type α)
 
-structure signature [global_names α] : Type 1 :=
-(cdecl (x : class_name α): cdecl x)
+structure cdecl {α : Type} [global_names α] (self : class_name α) : Type 1 :=
+(fdecl (f : field_name self) : fdecl f)
+(mdecl (m : method_name self) : mdecl m)
+
+class signature (α : Type) extends global_names α : Type 1 :=
+(cdef (x : class_name α): cdecl x)
 (main: class_name α)
 
-def signature.method_params {α : Type} [global_names α] (sig : signature α)
+def signature.method_params {α : Type} [signature α]
 {self : class_name α} (m : method_name self) : context α :=
-    ((sig.cdecl self).mdecl m).fparam
+    ((signature.cdef self).mdecl m).fparam
 
-def signature.return_type {α : Type} [global_names α] (sig : signature α)
+def signature.return_type {α : Type} [signature α]
 {self : class_name α} (m : method_name self) : type α :=
-    ((sig.cdecl self).mdecl m).retype
+    ((signature.cdef self).mdecl m).retype
 
-def signature.field_type {α : Type} [global_names α] (sig : signature α)
+def signature.field_type {α : Type} [signature α]
 {self : class_name α} (f : field_name self) : type α :=
-    (sig.cdecl self).fdecl f
+    ((signature.cdef self).fdecl f).type
+
+open signature
 
 /-
-We consider type environments to consist of:
-a signature,
+Given a signature, we consider type environments to consist of:
 a return type,
 a method reference, and
 declared local variables.
 -/
-structure tenv [global_names α] : Type 1 :=
-(sig : signature α)
+structure tenv (α : Type) [signature α] : Type 1 :=
 (self : class_name α)
 (current : method_name self)
 (locals : context α)
@@ -130,27 +121,27 @@ A field refers to a field within the enclosed class.
 A variable refers to either an argument, a local, or a field.
 -/
 
-structure pvar {α : Type} [global_names α] (e : tenv α)
+structure pvar {α : Type} [signature α] (e : tenv α)
 (ty : type α) : Type 1 :=
-(idx : list_at ty (e.sig.method_params e.current))
+(idx : list_at ty (method_params e.current))
 
-structure lvar {α : Type} [global_names α] (e : tenv α)
+structure lvar {α : Type} [signature α] (e : tenv α)
 (ty : type α) : Type 1 :=
 (idx : list_at ty e.locals)
 
-structure fvar {α : Type} [global_names α] (e : tenv α)
+structure fvar {α : Type} [signature α] (e : tenv α)
 (ty : type α) : Type 1 :=
 (idx : field_name e.self)
-(H : ty = e.sig.field_type idx)
+(H : ty = field_type idx)
 
 -- Store variable (LHS only)
-inductive svar {α : Type} [global_names α] (e : tenv α)
+inductive svar {α : Type} [signature α] (e : tenv α)
 (ty : type α) : Type 1
 | fvar: fvar e ty → svar
 | lvar: lvar e ty → svar
 
 -- Read variable (RHS only)
-inductive rvar {α : Type} [global_names α] (e : tenv α)
+inductive rvar {α : Type} [signature α] (e : tenv α)
 (ty : type α) : Type 1
 | fvar: fvar e ty → rvar
 | pvar: pvar e ty → rvar
@@ -160,7 +151,7 @@ inductive rvar {α : Type} [global_names α] (e : tenv α)
 Given a typing environment and a list of types,
 we have an argument list of variables with matching types.
 -/
-inductive arglist {α : Type} [global_names α] (e : tenv α) :
+inductive arglist {α : Type} [signature α] (e : tenv α) :
 list (type α) → Type 1
 | nil : arglist []
 | cons (x : type α) (xs : list (type α)) :
@@ -174,7 +165,7 @@ a function application on data values,
 value lookup in environment,
 referential equality check.
 -/
-inductive pexp {α : Type} [global_names α] (e : tenv α) :
+inductive pexp {α : Type} [signature α] (e : tenv α) :
 type α → Type 1
 | const (γ : Type) : γ → pexp γ
 | apply (γ δ : Type) : pexp (γ → δ) → pexp γ → pexp δ
@@ -191,7 +182,7 @@ an assignment,
 an asynchronous method call,
 an object allocation.
 -/
-inductive stmt {α : Type} [global_names α] (e : tenv α) : Type 1
+inductive stmt {α : Type} [signature α] (e : tenv α) : Type 1
 | skip: stmt
 | seq: stmt → stmt → stmt
 | ite: pexp e bool → stmt → stmt → stmt
@@ -200,7 +191,7 @@ inductive stmt {α : Type} [global_names α] (e : tenv α) : Type 1
 | assign {ty : type α} (l : svar e ty): pexp e ty → stmt
 -- call method m, on object in r, with args τ
 | async (c : class_name α) (r : rvar e (ref c))
-    (m : method_name c) (τ : arglist e (e.sig.method_params m)): stmt
+    (m : method_name c) (τ : arglist e (method_params m)): stmt
 -- allocate new object of class c and store reference in l
 | alloc (c : class_name α) (l : svar e (ref c)): stmt
 
@@ -213,10 +204,10 @@ local variable declarations, and
 a statement within a typing environment.
 -/
 
-structure pblock {α : Type} [global_names α]
-(sig : signature α) {self : class_name α} (m : method_name self) : Type 1 :=
+structure pblock {α : Type} [signature α]
+{self : class_name α} (m : method_name self) : Type 1 :=
 (locals : context α)
-(S : stmt (tenv.mk sig self m locals))
+(S : stmt (tenv.mk self m locals))
 
-structure program {α : Type} [global_names α] (sig : signature α) : Type 1 :=
-(body (self : class_name α) (m : method_name self): pblock sig m)
+structure program {α : Type} [signature α] : Type 1 :=
+(body {self : class_name α} (m : method_name self): pblock m)
