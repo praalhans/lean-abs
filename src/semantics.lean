@@ -6,6 +6,7 @@ universes u
 variables (α : Type) (β : Type)
 
 open type
+open pexp
 
 /-
 We treat objects transparently.
@@ -31,6 +32,8 @@ inductive value {α : Type} [global_names α] [objects α β] : type α → Type
 | obj (o : β) : value (type_of α o)
 | term {γ : Type} : γ → value (data α γ)
 
+open value
+
 /-
 Given a signature and class C,
 we have a state space Σ(C) consisting of
@@ -46,8 +49,18 @@ we have a value list of values with matching types.
 -/
 inductive vallist {α : Type} [global_names α] [objects α β] : list (type α) → Type 1
 | nil : vallist []
-| cons (x : type α) (xs : list (type α)) :
+| cons {x : type α} {xs : list (type α)} :
     value β x → vallist xs → vallist (x::xs)
+
+/-
+Given a value list, and an index of its type list, we can obtain a value.
+-/
+def vallist.lookup {α : Type} [global_names α] [objects α β] :
+Π {l : context α} {ty : type α}, vallist β l → list_at ty l → value β ty
+| (x :: xs) ._ (vallist.cons (v : value β x) _)
+    (list_at.head .(x) .(xs)) := v
+| (x :: xs) ty (vallist.cons _ (ys : vallist β xs))
+    (list_at.tail .(x) (zs : list_at .(ty) xs)) := vallist.lookup ys zs
 
 /-
 Given a signature and method name m,
@@ -69,3 +82,30 @@ structure assignment {α : Type} [global_names α] [objects α β] (e : tenv α)
 (state : state_space β e.sig e.self)
 (args : arg_space β e.sig e.current)
 (store : vallist β e.locals)
+
+def assignment.lookup {α β : Type} [global_names α] [objects α β] {e : tenv α}
+(σ : assignment β e) (tx : type α) : rvar e tx → value β tx
+| (rvar.fvar f) := eq.mpr (congr_arg _ f.H) (σ.state.map f.idx)
+| (rvar.pvar p) := σ.args.map.lookup β p.idx
+| (rvar.lvar l) := σ.store.lookup β l.idx
+
+/-
+NOTE: the definition for (rvar.fvar f) was found by the following proof,
+for matching the type of tx to that of the field.
+
+begin
+    have H : (tx = e.sig.field_type f.idx), apply f.H,
+    rewrite H,
+    exact σ.state.map f.idx
+end
+-/
+
+/-
+Evaluating a pure expression in an assignment.
+-/
+def eval {α : Type} [global_names α] [objects α β] (e : tenv α)
+(σ : assignment β e) : Π {ty : type α}, pexp e ty → value β ty
+| bool (requal (c : class_name α) (l : pexp e (ref c)) (r : pexp e (ref c))) := sorry
+| ty (lookup (r : rvar e ty)) := sorry
+| _ (const .(e) (γ : Type) (v : γ)) := term β v
+| (γ : Type) (apply .(γ) δ pl pr) := sorry

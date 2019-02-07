@@ -102,14 +102,6 @@ def signature.field_type {α : Type} [global_names α] (sig : signature α)
     (sig.cdecl self).fdecl f
 
 /-
-A field reference witnesses that a field
-has a type in a given signature.
--/
-inductive fieldref {α : Type} [global_names α] (sig : signature α)
-(self : class_name α) : type α → Type 1
-| mk (f : field_name self) : fieldref (sig.field_type f)
-
-/-
 We consider type environments to consist of:
 a signature,
 a return type,
@@ -148,17 +140,21 @@ structure lvar {α : Type} [global_names α] (e : tenv α)
 
 structure fvar {α : Type} [global_names α] (e : tenv α)
 (ty : type α) : Type 1 :=
-(field : fieldref e.sig e.self ty)
+(idx : field_name e.self)
+(H : ty = e.sig.field_type idx)
 
 -- Store variable (LHS only)
-def svar {α : Type} [global_names α] (e : tenv α)
-(ty : type α) : Type 1 :=
-    (lvar e ty) ⊕ (fvar e ty)
+inductive svar {α : Type} [global_names α] (e : tenv α)
+(ty : type α) : Type 1
+| fvar: fvar e ty → svar
+| lvar: lvar e ty → svar
 
 -- Read variable (RHS only)
-def rvar {α : Type} [global_names α] (e : tenv α)
-(ty : type α) : Type 1 :=
-    (pvar e ty) ⊕ (lvar e ty) ⊕ (fvar e ty)
+inductive rvar {α : Type} [global_names α] (e : tenv α)
+(ty : type α) : Type 1
+| fvar: fvar e ty → rvar
+| pvar: pvar e ty → rvar
+| lvar: lvar e ty → rvar
 
 /-
 Given a typing environment and a list of types,
@@ -178,12 +174,12 @@ a function application on data values,
 value lookup in environment,
 referential equality check.
 -/
-inductive pure {α : Type} [global_names α] (e : tenv α) :
+inductive pexp {α : Type} [global_names α] (e : tenv α) :
 type α → Type 1
-| const (γ : Type) (v : γ) : pure γ
-| apply (γ δ : Type) : pure (γ → δ) → pure γ → pure δ
-| lookup {ty : type α} (r : rvar e ty) : pure ty
-| requal (c : class_name α) : pure (ref c) → pure (ref c) → pure bool
+| const (γ : Type) : γ → pexp γ
+| apply (γ δ : Type) : pexp (γ → δ) → pexp γ → pexp δ
+| lookup {ty : type α} : rvar e ty → pexp ty
+| requal (c : class_name α) : pexp (ref c) → pexp (ref c) → pexp bool
 
 /-
 A statement within a typing environment is either:
@@ -198,10 +194,10 @@ an object allocation.
 inductive stmt {α : Type} [global_names α] (e : tenv α) : Type 1
 | skip: stmt
 | seq: stmt → stmt → stmt
-| ite: pure e bool → stmt → stmt → stmt
-| while: pure e bool → stmt → stmt
+| ite: pexp e bool → stmt → stmt → stmt
+| while: pexp e bool → stmt → stmt
 -- store in l the value of expr
-| assign {ty : type α} (l : svar e ty): pure e ty → stmt
+| assign {ty : type α} (l : svar e ty): pexp e ty → stmt
 -- call method m, on object in r, with args τ
 | async (c : class_name α) (r : rvar e (ref c))
     (m : method_name c) (τ : arglist e (e.sig.method_params m)): stmt
