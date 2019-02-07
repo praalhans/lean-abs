@@ -57,3 +57,15 @@ an assignment of method parameters to values.
 structure arg_space {α : Type} [global_names α] [objects α β] (sig : signature α)
 {self : class_name α} (m : method_name self) : Type 1 :=
 (map : vallist β (sig.method_params m))
+
+/-
+Given a type environment,
+we consider an assignment to consist of:
+a state space (of the self class),
+an argument space (of the current method),
+a value list (of the local variables)
+-/
+structure assignment {α : Type} [global_names α] [objects α β] (e : tenv α) :=
+(state : state_space β e.sig e.self)
+(args : arg_space β e.sig e.current)
+(store : vallist β e.locals)
