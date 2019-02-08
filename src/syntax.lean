@@ -165,9 +165,8 @@ a function application on data values,
 value lookup in environment,
 referential equality check.
 -/
-inductive pexp {α : Type} [signature α] (e : tenv α) :
-type α → Type 1
-| const (γ : Type) : γ → pexp γ
+inductive pexp {α : Type} [signature α] (e : tenv α) : type α → Type 1
+| value (γ : Type) : γ → pexp γ
 | apply (γ δ : Type) : pexp (γ → δ) → pexp γ → pexp δ
 | lookup {ty : type α} : rvar e ty → pexp ty
 | requal (c : class_name α) : pexp (ref c) → pexp (ref c) → pexp bool

@@ -1,8 +1,8 @@
 -- (C) Copyright 2019, Hans-Dieter Hiep
 
-import syntax
+import syntax data.stream
 
-open signature type pexp
+open stream signature type pexp nat
 
 /-
 We have the following class of dynamic types.
@@ -131,14 +131,23 @@ end
 /-
 Evaluating a pure expression in an assignment.
 -/
-def eval {α β : Type} [objects α β] (e : tenv α) (σ : assignment β e)
+def peval {α β : Type} [objects α β] {e : tenv α} (σ : assignment β e)
 : Π {ty : type α}, pexp e ty → value β ty
 | bool (requal (c : class_name α)
   (l : pexp e (ref c)) (r : pexp e (ref c))) :=
-    term β (ref_equal (eval l) (eval r))
+    term β (ref_equal (peval l) (peval r))
 | ty (lookup (r : rvar e ty)) := σ.lookup ty r
-| _ (const .(e) (γ : Type) (v : γ)) := term β v
+| _ (value _ (γ : Type) (v : γ)) := term β v
 | _ (apply (γ : Type) δ
   (pl : pexp e (γ → δ))
   (pr : pexp e γ)) :=
-    term β ((terminal β (eval pl)) (terminal β (eval pr)))
+    term β ((terminal β (peval pl)) (terminal β (peval pr)))
+
+/-
+Evaluating a statement in an assignment
+generates a stream of assignments.
+-/
+def eval {α β : Type} [objects α β] {e : tenv α} (σ : assignment β e)
+: stmt e → stream (option (assignment β e))
+| (stmt.skip e) := cons σ (const none)
+| (stmt.seq l r) := sorry
