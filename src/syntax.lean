@@ -12,7 +12,6 @@ class names (α : Type) :=
 section open names variables {α : Type} [names α]
   structure class_name (α : Type) [names α] :=
     (name : α) (H : name ∈ Nc α)
-  
   section variables (self : class_name α)
     structure field_name :=
       (name : α) (G: name ∈ Nf self.H)
@@ -24,13 +23,13 @@ section open names variables {α : Type} [names α]
     (name : α) (F: name ∈ Np m.G)
 end
 
-/- A type in our object language is either: a reference type (by class name), or a data type from the host language. -/
+/- A type in our object language is either: a reference type (by class name), or a data type from the host language. A variable context is a list of types; a local variable is encoded by an index in this context. Local variables do not have a name. -/
 section variables (α : Type) [names α]
   inductive type
   | ref: class_name α → type
   | data: Type → type
-
   instance : has_coe Type (type α) := ⟨type.data α⟩
+  @[reducible] def context := list (type α)
 end
 open type
 
@@ -54,22 +53,16 @@ end
 class signature (α : Type) extends names α : Type 1 :=
 (cdef (x : class_name α): cdecl x) (main: class_name α)
 
-def param_type {α : Type} [signature α]
-  {self : class_name α} {m : method_name self}
-  (p : param_name m) : type α :=
-(((signature.cdef self).mdecl m).pdecl p).type
-
-def field_type {α : Type} [signature α]
-  {self : class_name α} (f : field_name self) : type α :=
-((signature.cdef self).fdecl f).type
-
-def class_type {α : Type} [signature α]
-  (self : class_name α) : type α :=
-(ref self)
-
-/- A variable context is a list of types; a local variable is encoded by an index in this context. Local variables do not have a name. -/
-@[reducible]
-def context (α : Type) [names α] : Type 1 := list (type α)
+section variables {α : Type} [signature α]
+    {self : class_name α}
+    {m : method_name self}
+  def param_type (p : param_name m) : type α :=
+    (((signature.cdef self).mdecl m).pdecl p).type
+  def field_type (f : field_name self) : type α :=
+    ((signature.cdef self).fdecl f).type
+  def class_type (self : class_name α) : type α :=
+    (ref self)
+end
 
 /- Given a signature, we consider type environments to consist of: a class name, a method name, and declared local variables. -/
 structure tenv (α : Type) [signature α] : Type 1 :=
@@ -80,65 +73,56 @@ structure tenv (α : Type) [signature α] : Type 1 :=
 /- A note on terminology. Parameter: as declared in signature. Argument: a pure expression as supplied in a method call. -/
 
 /- Within a typing environment, we refer to numerous things. This refers to an object identity of the enclosed class. A local variable refers to the index within the declared local variables. A parameter refers to a parameter name of the current method. A field refers to a field within the enclosed class. -/
-structure tvar {α : Type} 
-
-structure lvar {α : Type} [signature α] (e : tenv α)
-  (ty : type α) : Type 1
-:= (idx : list_at ty e.locals)
-
-structure pvar {α : Type} [signature α] (e : tenv α)
-  (ty : type α) : Type 1 :=
-(idx : list_at ty (method_params e.current))
-
-structure fvar {α : Type} [signature α] (e : tenv α)
-  (ty : type α) : Type 1
-:= (idx : field_name e.self) (H : ty = field_type idx)
-
--- Store variable (LHS only)
-inductive svar {α : Type} [signature α] (e : tenv α)
-  (ty : type α) : Type 1
-| fvar: fvar e ty → svar
-| lvar: lvar e ty → svar
-
--- Read variable (RHS only)
-inductive rvar {α : Type} [signature α] (e : tenv α)
-  (ty : type α) : Type 1
-| fvar: fvar e ty → rvar
-| pvar: pvar e ty → rvar
-| lvar: lvar e ty → rvar
-
-/- A pure expression evaluates to a value of a particular type. Such expressions are either: a constant data value, a function application on data values, value lookup in environment, referential equality check. -/
-inductive pexp {α : Type} [signature α] (e : tenv α) :
-  type α → Type 1
-| value (γ : Type) : γ → pexp γ
-| apply (γ δ : Type) : pexp (γ → δ) → pexp γ → pexp δ
-| lookup {ty : type α} : rvar e ty → pexp ty
-| requal (c : class_name α) : pexp (ref c) → pexp (ref c) → pexp bool
-
-/- Given a typing environment and a list of types, we have an argument list of variables with matching types. -/
-inductive arglist {α : Type} [signature α] (e : tenv α) :
-  list (type α) → Type 1
-| nil : arglist []
-| cons (x : type α) (xs : list (type α)) : pexp e x → arglist xs → arglist (x::xs)
-
-/- A statement within a typing environment is either: a skip, a sequential composition, a branch, a loop, an assignment, an asynchronous method call, an object allocation. -/
-inductive stmt {α : Type} [signature α] (e : tenv α) : Type 1
-| skip: stmt
-| seq: stmt → stmt → stmt
-| ite: pexp e bool → stmt → stmt → stmt
-| while: pexp e bool → stmt → stmt
--- store in l the value of expr
-| assign {ty : type α} (l : svar e ty): pexp e ty → stmt
--- call method m, on object in r, with args τ
-| async (c : class_name α) (r : rvar e (ref c))
-  (m : method_name c) (τ : arglist e (method_params m)): stmt
--- allocate new object of class c and store reference in l
-| alloc (c : class_name α) (l : svar e (ref c)): stmt
+section variables {α : Type} [signature α] (e : tenv α)
+  section variable (ty : type α)
+    structure tvar := (H : ty = ref e.self)
+    structure lvar := (idx : list_at ty e.locals)
+    structure pvar :=
+      (idx : param_name e.current) (H : ty = param_type idx)
+    structure fvar :=
+      (idx : field_name e.self) (H : ty = field_type idx)
+    -- Store variable (LHS only)
+    inductive svar
+    | fvar: fvar e ty → svar
+    | lvar: lvar e ty → svar
+    -- Read variable (RHS only)
+    inductive rvar
+    | tvar: tvar e ty → rvar
+    | fvar: fvar e ty → rvar
+    | pvar: pvar e ty → rvar
+    | lvar: lvar e ty → rvar
+  end
+  /- A pure expression within a typing environment is either: a constant data value, a function application on data values, value lookup in environment, referential equality check. -/
+  inductive pexp : type α → Type 1
+  | value {γ : Type}: γ → pexp γ
+  | apply {γ δ : Type}: pexp (γ → δ) → pexp γ → pexp δ
+  | lookup {ty : type α}: rvar e ty → pexp ty
+  | requal {c : class_name α}:
+      pexp (ref c) → pexp (ref c) → pexp bool
+  /- An argument list assigns to each parameter of a method a variable within some typing environment of the right type. -/
+  structure arglist {c : class_name α} (m : method_name c) :=
+    (map (p : param_name m) : pexp e (param_type p))
+  /- A statement within a typing environment is either: a skip, a sequential composition, a branch, a loop, an assignment, an asynchronous method call, an object allocation. -/
+  inductive stmt : Type 1
+  | skip: stmt
+  | seq: stmt → stmt → stmt
+  | ite: pexp e bool → stmt → stmt → stmt
+  | while: pexp e bool → stmt → stmt
+  | assign {ty : type α}
+      (l : svar e ty): pexp e ty → stmt
+  | async {c : class_name α} {m : method_name c}
+      (o : rvar e (ref c))
+      (τ : arglist e m): stmt
+  | alloc {c : class_name α}
+      (l : svar e (ref c)): stmt
+end
 
 /- A program with a given program signature associates to each method of each class a program block. A program block associated to a method consists of: local variable declarations, and a statement within a typing environment. -/
-structure pblock {α : Type} [signature α]
-  {self : class_name α} (m : method_name self) : Type 1 :=
-(locals : context α) (S : stmt (tenv.mk self m locals))
-
-structure program {α : Type} [signature α] : Type 1 :=
-(body {self : class_name α} (m : method_name self): pblock m)
+section variables {α : Type} [signature α]
+  structure pblock {self : class_name α}
+      (m : method_name self) :=
+    (locals : context α)
+    (S : stmt (tenv.mk self m locals))
+  structure program :=
+    (body {self : class_name α} (m : method_name self): pblock m)
+end
