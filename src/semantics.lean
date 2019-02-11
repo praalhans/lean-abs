@@ -4,48 +4,58 @@ import syntax data.stream
 
 open stream signature type pexp nat
 
-/- We have the following class of dynamic types. Given a finite set, there can always be given a fresh instance not in that set. (Thanks to Johannes Hölzl!) -/
-class dynamic (β : Type) :=
-(fresh: finset β → β)
-(fresh_is_new: ∀x : finset β, (fresh x) ∉ x)
-open dynamic
-
-/- Fix a signature (and global names). We treat objects transparently. Each object is associated to a single class name. Equality is decidable for objects of the same class. Given a set of objects, we can always construct some new object. -/
-class objects (α β : Type) extends signature α, dynamic β :=
+/- Fix a signature (and global names). We treat objects transparently. Each object is associated to a single class name. Given a finite set of object identities, there can always be a fresh identity not in that set (thanks to Johannes Hölzl). Allocation of a fresh identity results in the same class name. Equality is decidable for objects. -/
+class objects (α β : Type) extends signature α :=
+(alloc: finset β → class_name α → β)
 (class_of: β → class_name α)
-(equality (x y : β): class_of x = class_of y → bool)
+(decidable_object: decidable_eq β)
+
+(alloc_is_new (x : finset β) (c : class_name α):
+  (alloc x c) ∉ x)
+(alloc_class_of (x : finset β) (c : class_name α):
+  class_of (alloc x c) = c)
 open objects
 
-/- We treat values as being of a type. A value of a reference type is an object of the same class. A value of a data type is a term of the type in the host language. -/
-inductive value {α : Type} (β : Type) [objects α β] :
-  type α → Type 1
-| object (o : β) : value (ref (class_of α o))
-| term {γ : Type} : γ → value (data α γ)
-
--- Projection of value to object
-def value.objective {α β : Type} [objects α β]
-  {c : class_name α} (x : value β (ref c)) : β :=
-begin cases x, apply x_1 end
-
-lemma value.obj_class {α β : Type} [objects α β]
-  {c : class_name α} (x : value β (ref c)) :
-  class_of α (value.objective x) = c :=
-begin cases x, unfold value.objective end
-
--- Projection of value to term
-def value.terminal {α : Type} (β : Type) [objects α β]
-  {γ : Type} (x : value β (data α γ)) : γ :=
-begin cases x, apply x_a end
-
-/- Given two values of reference type, we can decide referential equality. -/
-def value.ref_equal {α β : Type} [objects α β]
-  {c : class_name α} (x : value β (ref c))
-  (y : value β (ref c)) : bool :=
-let H : class_of α (value.objective x) =
-    class_of α (value.objective y) :=
-  begin repeat {rewrite value.obj_class} end
-in equality (value.objective x) (value.objective y) H
-
+/- We treat values as being of a type. A value of a reference type is an object of the same class, or null. A value of a data type is a term of the type in the host language. -/
+section variables {α : Type} (β : Type) [objects α β]
+  inductive value : type α → Type 1
+  | object (o : β) : value (ref (class_of α o))
+  | null (c : class_name α) : value (ref c)
+  | term {γ : Type} : γ → value (data α γ)
+end
+section variables {α β : Type} [objects α β] {c : class_name α}
+  -- Projection of value to term
+  def value.terminal {γ : Type} (x : value β (data α γ)) : γ :=
+    begin cases x, apply x_a end
+  section variable {x : value β (ref c)}
+    -- Projection of value to object (if not null)
+    def value.objective (H: x ≠ value.null c): β :=
+      begin cases x, apply x_1, exfalso, apply H, refl end
+    -- The class of object values corresponds to their reference type
+    lemma value.obj_class (H: x ≠ value.null c):
+        class_of α (value.objective H) = c :=
+      begin cases x, unfold value.objective,
+        exfalso, apply H, refl end
+    -- Checking equality with null is decidable
+    instance decidable_value_null:
+        decidable (x = value.null c) :=
+      begin cases x, apply is_false, intro, cases a,
+        apply is_true, refl end
+  end
+  -- Checking equality of objective values is decidable
+  instance decidable_value_objective
+      {x : value β (ref c)} {y : value β (ref c)}
+      {P : x ≠ value.null c} {Q : y ≠ value.null c} :
+      decidable (value.objective P = value.objective Q) :=
+    begin apply (decidable_object α β) end
+  /- Given two values of reference type, we can decide referential equality. -/
+  def value.ref_equal
+      (x : value β (ref c))
+      (y : value β (ref c)) : bool :=
+    if P : x = value.null c then to_bool (y = value.null c)
+    else if Q : y = value.null c then false
+      else to_bool (value.objective P = value.objective Q)
+end
 open value
 
 /- For class C we have a state space Σ(C) consisting of: an assignment of fields to values. -/
