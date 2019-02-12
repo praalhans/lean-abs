@@ -28,20 +28,18 @@ inductive value (β : Type) [objects α β] : type α → Type 1
     (H : c = class_of α o) : value (ref c)
 | null (c : class_name α) : value (ref c)
 | term {γ : datatype} : γ → value (data α γ)
-section -- (scope: x)
-  variable {x : value β (ref c)}
-  -- Projection of value to term
-  def value.unterm {γ : datatype} :
-      Π (x : value β (data α γ)), γ.host
-  | (value.term .(β) t) := t
-  -- Projection of value to object
-  def value.unobject {c : class_name α} :
-      Π (x : value β (ref c)), option β
-  | (value.object o _) := o
-  | (value.null _) := none
-end
+-- Projection of value to term
+def value.unterm {γ : datatype} :
+    Π (x : value β (data α γ)), γ.host
+| (value.term .(β) t) := t
+-- Projection of value to object
+def value.unobject {c : class_name α} :
+    Π (x : value β (ref c)), option β
+| (value.object o _) := o
+| (value.null _) := none
 
 /- For class C we have a state space Σ(C) consisting of an assignment of fields to values. For method m, we have a argument space Σ(m) consisting of an assignment of method parameters to values. Given a list of types, we have a value list of values with matching types. An object space consists of: a this identity, a state space (of the self class). -/
+@[derive decidable_eq]
 structure arg_space (β : Type) [objects α β]
     {self : class_name α} (m : method_name self) :=
   (map (p : param_name m) : value β (param_type p))
@@ -97,6 +95,7 @@ structure local_config (α β : Type) [objects α β] :=
   (self : class_name α) (o : object_space β self)
   (m : process o)
 /- A global history is a sequence of events. An event is either an asynchronous method call of some caller object to a callee object, its method, and for each parameter an argument value. Or, an event is a method selection. -/
+@[derive decidable_eq]
 structure callsite (α β : Type) [objects α β] :=
   (o : β)
   (m : method_name (class_of α o))

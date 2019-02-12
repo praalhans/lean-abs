@@ -1,6 +1,6 @@
 -- (C) Copyright 2019, Hans-Dieter Hiep
 
-import data.finmap data.bool data.vector data.list
+import data.fintype data.finmap data.bool data.vector data.list
 import util
 
 variable {α : Type}
@@ -17,19 +17,20 @@ instance names.decidable [names α]:
 
 section -- (scope: [names α], self, m)
   variable [names α]
-  @[derive decidable_eq]
-  structure class_name (α : Type) [names α] :=
-    (name : α) (H : name ∈ names.Nc α)
+  /- We make use of subtypes, to demonstrate instances of fintype. Whenever we have established that these types are finite, we obtain decidable equality for functions that take these types as domain (thanks to Johannes Hölzl). This fact turns out to be crucial for semantics. -/
+  @[reducible]
+  def class_name (α : Type) [names α] :=
+    {name : α // name ∈ names.Nc α}
   variable {self : class_name α}
-  @[derive decidable_eq]
-  structure field_name (self : class_name α) :=
-    (name : α) (G: name ∈ names.Nf self.H)
-  @[derive decidable_eq]
-  structure method_name (self : class_name α) :=
-    (name : α) (G: name ∈ names.Nm self.H)
-  @[derive decidable_eq]
-  structure param_name (m : method_name self) :=
-    (name : α) (F: name ∈ names.Np m.G)
+  @[reducible]
+  def field_name (self : class_name α) :=
+    {name : α // name ∈ names.Nf self.property}
+  @[reducible]
+  def method_name (self : class_name α) :=
+    {name : α // name ∈ names.Nm self.property}
+  @[reducible]
+  def param_name (m : method_name self) :=
+    {name : α // name ∈ names.Np m.property}
   /- A type in our object language is either: a reference type (by class name), or a data type from the host language. A variable context is a list of types; a local variable is encoded by an index in this context. Local variables do not have a name. -/
   structure datatype :=
     (host : Type) (decidable_data: decidable_eq host)
