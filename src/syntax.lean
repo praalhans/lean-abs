@@ -47,14 +47,14 @@ section variables {α : Type} [names α]
   -- Design choice: constructors and methods are treated uniformly.
   end
 end
+open type
 
 class signature (α : Type) extends names α : Type 1 :=
 (cdef (x : class_name α): cdecl x) (main: class_name α)
 
-variables {α : Type} [signature α]
-open type
+variables {α : Type} [signature α] {self : class_name α}
 
-section variables {self : class_name α} {m : method_name self}
+section variable {m : method_name self}
   def param_type (p : param_name m) : type α :=
     (((signature.cdef self).mdecl m).pdecl p).type
   def field_type (f : field_name self) : type α :=
@@ -63,19 +63,22 @@ section variables {self : class_name α} {m : method_name self}
     (ref self)
 end
 
-/- Given a signature, we consider type environments to consist of: a class name, a method name, and declared local variables. -/
-structure tenv (α : Type) [signature α] : Type 1 :=
-(self : class_name α)
+/- Given a signature and an enclosing class, we consider type environments to consist of: a method name, and declared local variables. -/
+structure tenv (self : class_name α) :=
 (current : method_name self)
 (locals : context α)
+def tenv.self (e : tenv self) : class_name α := self
+open tenv
 
 /- A note on terminology. Parameter: as declared in signature. Argument: a pure expression as supplied in a method call. -/
 
 /- Within a typing environment, we refer to numerous things. This refers to an object identity of the enclosed class. A local variable refers to the index within the declared local variables. A parameter refers to a parameter name of the current method. A field refers to a field within the enclosed class. -/
-section variable (e : tenv α)
+section variable (e : tenv self)
   section variable (ty : type α)
-    structure tvar := (H : ty = ref e.self)
-    structure lvar := (idx : list_at ty e.locals)
+    structure tvar :=
+      (H : ty = ref e.self)
+    structure lvar :=
+      (idx : list_at ty e.locals)
     structure pvar :=
       (idx : param_name e.current) (H : ty = param_type idx)
     structure fvar :=
@@ -119,6 +122,6 @@ end
 /- A program with a given program signature associates to each method of each class a program block. A program block associated to a method consists of: local variable declarations, and a statement within a typing environment. -/
 structure pblock {self : class_name α} (m : method_name self) :=
   (locals : context α)
-  (S : stmt (tenv.mk self m locals))
+  (S : stmt (tenv.mk m locals))
 structure program :=
   (body {self : class_name α} (m : method_name self): pblock m)

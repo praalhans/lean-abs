@@ -25,7 +25,7 @@ section variables {α : Type} (β : Type) [objects α β]
 end
 section variables {α β : Type} [objects α β] {c : class_name α}
   -- Projection of value to term
-  def value.terminal {γ : Type} (x : value β (data α γ)) : γ :=
+  def value.unterm {γ : Type} (x : value β (data α γ)) : γ :=
     begin cases x, apply x_a end
   section variable {x : value β (ref c)}
     -- Projection of value to object (if not null)
@@ -49,78 +49,68 @@ section variables {α β : Type} [objects α β] {c : class_name α}
       decidable (value.objective P = value.objective Q) :=
     begin apply (decidable_object α β) end
   /- Given two values of reference type, we can decide referential equality. -/
-  def value.ref_equal
-      (x : value β (ref c))
-      (y : value β (ref c)) : bool :=
-    if P : x = value.null c then to_bool (y = value.null c)
-    else if Q : y = value.null c then false
-      else to_bool (value.objective P = value.objective Q)
+  def value.requal: value β (ref c) → value β (ref c) → bool :=
+    λx, λy, if P : x=value.null c then to_bool (y=value.null c)
+      else if Q : y=value.null c then false
+        else to_bool (value.objective P = value.objective Q)
 end
 open value
 
-/- For class C we have a state space Σ(C) consisting of: an assignment of fields to values. -/
-structure state_space {α : Type} (β : Type) [objects α β]
-  (self : class_name α) : Type 1 :=
-(map (f : field_name self) : value β (field_type f))
-
-/- Given a list of types, we have a value list of values with matching types. -/
-inductive vallist {α : Type} (β : Type) [objects α β] :
-  list (type α) → Type 1
-| nil : vallist []
-| cons {x : type α} {xs : list (type α)} :
-  value β x → vallist xs → vallist (x::xs)
-
-/- Given a value list, and an index of its type list, we can obtain a value. -/
-def vallist.lookup {α β : Type} [objects α β] :
-  Π {l : context α} {ty : type α}, vallist β l → list_at ty l →
-  value β ty
-| (x :: xs) ._ (vallist.cons (v : value β x) _)
-  (list_at.head .(x) .(xs)) := v
-| (x :: xs) ty (vallist.cons _ (ys : vallist β xs))
-  (list_at.tail .(x) (zs : list_at .(ty) xs)) :=
-    vallist.lookup ys zs
-
-/- Given a signature and method name m, we have a argument space Σ(m) consisting an assignment of method parameters to values. -/
-structure arg_space {α : Type} (β : Type) [objects α β]
-  {self : class_name α} (m : method_name self) : Type 1 :=
-(map : vallist β (method_params m))
-
-/- Given a type environment, we consider an assignment to consist of: a state space (of the self class), an argument space (of the current method), a value list (of the local variables) -/
-structure assignment {α : Type} (β : Type) [objects α β]
-  (e : tenv α) :=
-(state : state_space β e.self)
-(args : arg_space β e.current)
-(store : vallist β e.locals)
-
-def assignment.lookup {α β : Type} [objects α β] {e : tenv α}
-  (σ : assignment β e) (tx : type α) : rvar e tx → value β tx
-| (rvar.fvar f) := eq.mpr (congr_arg _ f.H) (σ.state.map f.idx)
-| (rvar.pvar p) := σ.args.map.lookup p.idx
-| (rvar.lvar l) := σ.store.lookup l.idx
-
-/- NOTE: the definition for (rvar.fvar f) was found by the following proof,
-for matching the type of tx to that of the field.
-
-begin
-    have H : (tx = field_type f.idx), apply f.H,
-    rewrite H,
-    exact σ.state.map f.idx
-end -/
-
-/- Evaluating a pure expression in an assignment. -/
-def peval {α β : Type} [objects α β] {e : tenv α}
-  (σ : assignment β e) : Π {ty : type α}, pexp e ty → value β ty
-| bool (requal (c : class_name α)
-    (l : pexp e (ref c)) (r : pexp e (ref c))) :=
-  term β (ref_equal (peval l) (peval r))
-| ty (lookup (r : rvar e ty)) := σ.lookup ty r
-| _ (value _ (γ : Type) (v : γ)) := term β v
-| _ (apply (γ : Type) δ (pl : pexp e (γ → δ)) (pr : pexp e γ)) :=
-  term β ((terminal β (peval pl)) (terminal β (peval pr)))
-
-/- Evaluating a statement in an assignment generates a stream of assignments. -/
-def eval {α β : Type} [objects α β] {e : tenv α}
-  (σ : assignment β e) : stmt e →
-  stream (option (assignment β e))
-| (stmt.skip e) := cons σ (const none)
-| _ := sorry
+section variables {α : Type} (β : Type) [objects α β]
+    (self : class_name α)
+  /- For class C we have a state space Σ(C) consisting of an assignment of fields to values. -/
+  structure state_space :=
+    (map (f : field_name self) : value β (field_type f))
+  /- For method m, we have a argument space Σ(m) consisting of an assignment of method parameters to values. -/
+  structure arg_space [objects α β] {self : class_name α}
+      (m : method_name self) :=
+    (map (p : param_name m) : value β (param_type p))
+  /- Given a list of types, we have a value list of values with matching types. -/
+  inductive vallist : list (type α) → Type 1
+  | nil : vallist []
+  | cons {x : type α} {xs : list (type α)} :
+    value β x → vallist xs → vallist (x::xs)
+  /- An object space consists of: a this identity, a state space (of the self class). -/
+  structure object_space :=
+    (this : value β (ref self))
+    (state : state_space β self)
+end
+section variables {α : Type} {β : Type} [objects α β]
+    {self : class_name α} {o : object_space β self}
+    {e : tenv self}
+  /- An active process consists of: an argument space (of the current method), a value list (of the local variables), and a statement. -/
+  structure active_process (o : object_space β self) (e : tenv self) :=
+    (args : arg_space β e.current)
+    (store : vallist β e.locals)
+    (stmt : stmt e)
+  /- Given a value list and an index in the list of types, we obtain a value. -/
+  def vallist.lookup : Π {l : context α} {ty : type α},
+      vallist β l → list_at ty l → value β ty
+  | (x :: xs) ._ (vallist.cons (v : value β x) _)
+    (list_at.head .(x) .(xs)) := v
+  | (x :: xs) ty (vallist.cons _ (ys : vallist β xs))
+    (list_at.tail .(x) (zs : list_at .(ty) xs)) :=
+      vallist.lookup ys zs
+  -- Given an active process, we can lookup the value of a read variable.
+  def active_process.lookup  (P : active_process o e)
+      {tx : type α} : rvar e tx → value β tx
+  | (rvar.tvar t) := eq.mpr (congr_arg _ t.H) o.this
+  | (rvar.fvar f) := eq.mpr (congr_arg _ f.H) $ o.state.map f.idx
+  | (rvar.pvar p) := eq.mpr (congr_arg _ p.H) $ P.args.map p.idx
+  | (rvar.lvar l) := P.store.lookup l.idx
+  /- Evaluating a pure expression in an active process. -/
+  def eval (P : active_process o e) : Π {ty : type α},
+      pexp e ty → value β ty
+  | bool (requal l r) := term β (requal (eval l) (eval r))
+  | ty (lookup r) := P.lookup r
+  | _ (const _ v) := term β v
+  | _ (apply l r) := term β $ (unterm $ eval l) (unterm $ eval r)
+  /- A process is either nil or an active process. -/
+  inductive process (o : object_space β self)
+  | nil : process
+  | active {e : tenv self} (a : active_process o e) : process
+  /- A local configuration is an object configuration and a process. -/
+  structure local_config :=
+    (o : object_space β self) (m : process o)
+  /- A local step is a map from local configuration to local configuration. -/
+end
