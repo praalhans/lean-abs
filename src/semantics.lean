@@ -1,6 +1,6 @@
 -- (C) Copyright 2019, Hans-Dieter Hiep
 
-import syntax
+import syntax data.finsupp
 
 open signature type pexp nat list
 
@@ -67,7 +67,7 @@ structure active_process (this : object_space β self)
 def vallist.lookup : Π {l : context α} {ty : type α},
     vallist β l → list_at ty l → value β ty
 | (x :: xs) ._ (vallist.cons (v : value β x) _)
-  (list_at.head .(x) .(xs)) := v
+  (list_at.here .(x) .(xs)) := v
 | (x :: xs) ty (vallist.cons _ (ys : vallist β xs))
   (list_at.tail .(x) (zs : list_at .(ty) xs)) :=
     vallist.lookup ys zs
@@ -121,50 +121,22 @@ def event.is_selection_of (α : Type) [objects α β] (x : β) :
 | (event.selection c) := if x = c.o then some c else none
 | _ := none
 @[simp]
-def event.calls_to (x : list (event α β)) (o : β) :
+def event.calls_to (l : list (event α β)) (x : β) :
     list (callsite α β) :=
-  x.filter_map (event.is_call_to α o)
-notation x `!`:68 o:69 := event.calls_to x o
+  l.filter_map (event.is_call_to α x)
+notation l `!`:68 x:69 := event.calls_to l x
 @[simp]
-def event.selections_of (x : list (event α β))
-    (o : β) : list (callsite α β) :=
-  x.filter_map (event.is_selection_of α o)
-notation x `?`:68 o:69 := event.selections_of x o
-/- A global history is a sequence of events, restricted to those in which for each object, the subsequence of calls to is a prefix of the subsequence of selections. -/
-@[reducible]
-def global_history (α β : Type) [objects α β] :=
-  {seq : list (event α β) // ∀ o : β, is_prefix (seq?o) (seq!o)}
-/- Given a global history and an object, a call site is pending if the number of occurrences in calls is higher than the number of occurrences in selections. -/
-def global_history.is_pending (θ : global_history α β)
-    (c : callsite α β) : Prop :=
-  length (filter (= c) (θ?c.o)) >
-  length (filter (= c) (θ!c.o))
-/- Given a non-empty global history, a selection event is never first. -/
-lemma global_history.never_selection (seq : list (event α β))
-  (c : callsite α β) : ¬∀ o : β, is_prefix
-  ((event.selection c::seq)?o) ((event.selection c::seq)!o) :=
-begin
-  admit -- TODO
-end
-/- Given a global history and an object identity, a scheduler scheduler takes the first pending call, if any. To do so we match each call event with the first corresponding selection event, cancelling them if they both occur. If no corresponding selection event is found, we have found a pending call. -/
-def global_history.cancel: callsite α β → list (event α β) →
-    option (list (event α β))
-| _ [] := none
-| c (d :: l) := if c = d then (some l)
-    else option.map (cons d) (global_history.cancel c l)
--- TODO: proof that global_history.cancel can be lifted to global histories
-def global_history.sched : global_history α β → β →
-    option (callsite α β)
-| ⟨[], _⟩ _ := none
-| ⟨(event.selection c) :: l, H⟩ o' :=
-  begin
-    exfalso, apply global_history.never_selection l c, apply H
-  end
-| ⟨e@(event.call o _) :: l, _⟩ o' :=
-  match global_history.cancel ↑e l with
-  | none := e
-  | (some l') := sorry -- global_history.sched l'
-  end
+def event.selections_of (l : list (event α β)) (x : β) :
+    list (callsite α β) :=
+  l.filter_map (event.is_selection_of α x)
+notation l `?`:68 x:69 := event.selections_of l x
+/- A global history is a sequence of events, restricted to those in which for each object, the subsequence of selections to is a prefix of the subsequence of calls. We formulate global histories as a pair of a list of events with a multiset of unmatched events that occur in the list. -/
+inductive global_history (α β : Type) [objects α β] :
+    list (event α β) → finsupp β (queue (callsite α β)) → Type
+| empty: global_history [] 0
+
+-- {θ : list (event α β) // ∀ o : β, is_prefix (θ?o) (θ!o)}
+
 /- A local step is taken on a local configuration and a corresponding local history, to a next local configuration. -/
 def local_step (x : local_config α β) : local_config α β :=
   sorry
