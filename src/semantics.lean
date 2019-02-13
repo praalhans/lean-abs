@@ -28,6 +28,9 @@ inductive value (β : Type) [objects α β] : type α → Type 1
     (H : c = class_of α o) : value (ref c)
 | null (c : class_name α) : value (ref c)
 | term {γ : datatype} : γ → value (data α γ)
+instance value.inhabited : Π{ty : type α}, inhabited (value β ty)
+| (ref c) := ⟨value.null c⟩
+| (data .(α) γ) := ⟨value.term β γ.default⟩
 -- Projection of value to term
 def value.unterm {γ : datatype} :
     Π (x : value β (data α γ)), γ.host
@@ -51,6 +54,13 @@ inductive vallist (β : Type) [objects α β] :
 | nil : vallist []
 | cons {ty : type α} {l : list (type α)} :
   value β ty → vallist l → vallist (ty::l)
+def vallist.default (β : Type) [objects α β] :
+    Π(l : list (type α)), vallist β l
+| [] := vallist.nil β
+| (t :: l) := vallist.cons (default (value β t))
+    (vallist.default l)
+instance vallist.inhabited (l : list (type α)) :
+  inhabited (vallist β l) := ⟨vallist.default β l⟩
 structure object_space (β : Type) [objects α β]
     (self : class_name α) :=
   (val : value β (ref self))
@@ -90,11 +100,7 @@ def eval (P : active_process this e) : Π {ty : type α},
 inductive process (this : object_space β self)
 | nil : process
 | active {e : tenv self} (a : active_process this e) : process
-/- A local configuration is an object configuration and a process. -/
-structure local_config (α β : Type) [objects α β] :=
-  (self : class_name α)(this : object_space β self)
-  (m : process this)
-/- A global history is a sequence of events. An event is either an asynchronous method call of some caller object to a callee object, its method, and for each parameter an argument value. Or, an event is a method selection. -/
+/- An event is either an asynchronous method call of some caller object to a callee object, its method, and for each parameter an argument value. Or, an event is a method selection. -/
 @[derive decidable_eq]
 structure callsite (α β : Type) [objects α β] :=
   (o : β)
@@ -109,41 +115,28 @@ def event.to_callsite : event α β → callsite α β
 | (event.selection c) := c
 instance event.event_to_callsite : has_coe (event α β)
   (callsite α β) := ⟨event.to_callsite⟩
-/- Given an object, we consider two subsequences of a global history. The first consists only of call events with the object as callee (abstracted to its corresponding call site), the second consists only of selection events with the object as callee. -/
-@[simp]
+/- A global history is a sequence of events. -/
+@[reducible]
+def global_history (α β : Type) [objects α β] := list (event α β)
+/- There are two subsequences of a global history. The first consists only of call events with the object as callee (abstracted to its corresponding call site), the second consists only of selection events with the object as callee. -/
 def event.is_call_to (α : Type) [objects α β] (x : β) :
     event α β → option (callsite α β)
 | (event.call _ c) := if x = c.o then some c else none
 | _ := none
-@[simp]
 def event.is_selection_of (α : Type) [objects α β] (x : β) :
     event α β → option (callsite α β)
 | (event.selection c) := if x = c.o then some c else none
 | _ := none
-@[simp]
-def event.calls_to (l : list (event α β)) (x : β) :
-    list (callsite α β) :=
-  l.filter_map (event.is_call_to α x)
-notation l `!`:68 x:69 := event.calls_to l x
-@[simp]
-def event.selections_of (l : list (event α β)) (x : β) :
-    list (callsite α β) :=
-  l.filter_map (event.is_selection_of α x)
-notation l `?`:68 x:69 := event.selections_of l x
-/- A global history is a sequence of events, restricted to those in which for each object, the subsequence of selections to is a prefix of the subsequence of calls. We formulate global histories as a pair of a list of events with a multiset of unmatched events that occur in the list. -/
-inductive global_history (α β : Type) [objects α β] :
-    list (event α β) → finsupp β (queue (callsite α β)) → Type
-| empty: global_history [] 0
-
--- {θ : list (event α β) // ∀ o : β, is_prefix (θ?o) (θ!o)}
-
-/- A local step is taken on a local configuration and a corresponding local history, to a next local configuration. -/
-def local_step (x : local_config α β) : local_config α β :=
-  sorry
-/- A global configuration is a finite set of object configurations and a global history. -/
-structure global_config (α β : Type) [objects α β] :=
-  (Γ: finset (local_config α β))
-  (θ: global_history α β)
+def global_history.calls_to (θ : global_history α β)
+    (x : β) : list (callsite α β) :=
+  θ.filter_map (event.is_call_to α x)
+def global_history.selections_of (θ : global_history α β)
+    (x : β) : list (callsite α β) :=
+  θ.filter_map (event.is_selection_of α x)
+reserve notation `!`:68
+reserve notation `?`:68
+infix ! := global_history.calls_to
+infix ? := global_history.selections_of
 /- A local history is obtained from a global history and an object identity: it consists of the outgoing calls, an method selections involving the object. -/
 @[reducible]
 def event.is_local_to (α : Type) [objects α β] (x : β) :
@@ -154,4 +147,35 @@ instance event.decidable_local (o : β) (e: event α β) :
     decidable (event.is_local_to α o e) :=
   begin cases e; apply_instance end
 def local_history (θ : global_history α β) (o : β) :=
-  filter (event.is_local_to α o) θ
+  θ.filter (event.is_local_to α o)
+/- The list of pending calls to an object is the list of calls to, with the selections removed. -/
+def global_history.pending_calls_to (θ : global_history α β)
+  (o : β) : list (callsite α β) := (θ!o).remove_all (θ?o)
+/- We have an optional first pending call to an object. -/
+def global_history.sched (θ : global_history α β)
+    (o : β) : option (callsite α β) :=
+  head (lift (θ.pending_calls_to o))
+
+/- A local configuration is an object identity and a process. -/
+structure local_config (β : Type) [objects α β]
+    (self : class_name α) :=
+  (σ : object_space β self)
+  (m : process σ)
+/- We fix a program, and global history. -/
+variables (p : program α) (θ : global_history α β)
+/- A step is taken on a local configuration. -/
+def local_config.step : local_config β self →
+    option ((local_config β self) × option (event α β)) :=
+/- If the process is inactive, we obtain a pending method call. If no method call is pending, no step is taken. Otherwise, the next local configuration is an active process with the arguments of the selected method, a default store, and the body of the method as statement; additionally, an event is generated. -/
+/- Otherwise, there is an active process. We look at the list of statements. If the list is empty, the process becomes inactive. -/
+/- Otherwise, there is a current statement. If the current statement is an if statement, for which we evaluate the boolean pure expression. If it is true, we replace the current statement by those of the then-branch. Otherwise, we replace the current statement by those of the else-branch. -/
+/- Otherwise, there is a while statement. We evaluate the boolean pure expression. If it is true, we prepend the body to the current statements. Otherwise, we discard the current statement. -/
+/- Otherwise, we consider the assignment statement. We evaluate the pure expression, and the result is taken to update the variable on the left-hand side: if it is a field then the object space field state is updated, otherwise it is a local and the store is updated. In both cases, the current statement is discarded. -/
+/- Otherwise, we have an async statement. We evaluate the argument list to a value list; the object pure expression is evaluated to an object value. If that value is null, no step is taken. Otherwise, we generate a method selection event with our object as caller and the appropriate call site, and discard the current statement. -/
+/- Otherwise, we have an alloc statement. We evaluate the argument list to a value list. A fresh object identity is obtained from the global history. A method selection event to the constructor of the freshly obtained object is generated with an approriate call site, and the current statement is discarded. -/
+  sorry
+
+/- A global configuration is a finite set of object configurations and a global history. -/
+structure global_config (α β : Type) [objects α β] :=
+  (Γ (self : class_name α): finset (local_config β self))
+  (θ: global_history α β)

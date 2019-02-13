@@ -33,16 +33,20 @@ section -- (scope: [names α], self, m)
     {name : α // name ∈ names.Np m.property}
   /- A type in our object language is either: a reference type (by class name), or a data type from the host language. A variable context is a list of types; a local variable is encoded by an index in this context. Local variables do not have a name. -/
   structure datatype :=
-    (host : Type) (decidable_data: decidable_eq host)
+    (host : Type)
+    (default: host)
+    (decidable_data: decidable_eq host)
   instance datatype.to_sort : has_coe_to_sort datatype :=
     {S := Type, coe := λS, S.host}
-  instance datatype.host_decidable (γ : datatype) (x y : γ) :
-    decidable (x = y) := γ.decidable_data x y
+  instance datatype.host_decidable (γ : datatype) :
+    decidable_eq γ := γ.decidable_data
+  instance datatype.host_inhabited (γ : datatype) :
+    inhabited γ := ⟨γ.default⟩
   inductive type (α : Type) [names α]
   | ref: class_name α → type
   | data: datatype → type
   @[reducible] def boolean (α : Type) [names α] : type α :=
-    type.data α ⟨bool, bool.decidable_eq⟩
+    type.data α ⟨bool, ff, bool.decidable_eq⟩
   /- A local variable context is a list of types. -/
   @[reducible] def context (α : Type) [names α] := list (type α)
 
@@ -74,6 +78,8 @@ def param_type (p : param_name m) : type α :=
   (((signature.cdef self).mdecl m).pdecl p).type
 def field_type (f : field_name self) : type α :=
   ((signature.cdef self).fdecl f).type
+def constructor (self : class_name α) : method_name self :=
+  (signature.cdef self).ctor
 def class_type (self : class_name α) : type α :=
   (ref self)
 
@@ -118,22 +124,26 @@ inductive pexp : type α → Type 1
 structure arglist {c : class_name α} (m : method_name c) :=
   (map (p : param_name m) : pexp e (param_type p))
 /- A statement within a typing environment is either: a skip, a sequential composition, a branch, a loop, an assignment, an asynchronous method call, an object allocation. -/
-inductive stmt : Type 1
-| skip: stmt
-| seq: stmt → stmt → stmt
-| ite: pexp e (boolean α) → stmt → stmt → stmt
-| while: pexp e (boolean α) → stmt → stmt
-| assign {ty : type α}
-    (l : svar e ty): pexp e ty → stmt
-| async {c : class_name α} {m : method_name c}
+inductive stmt {α : Type} [signature α]
+    {self : class_name α} : Π (e : tenv self), Type 1
+| ite {e : tenv self}:
+    pexp e (boolean α) → list (stmt e) → list (stmt e) → stmt e
+| while {e : tenv self}:
+    pexp e (boolean α) → list (stmt e) → stmt e
+| assign {e : tenv self} {ty : type α}
+    (l : svar e ty): pexp e ty → stmt e
+| async {e : tenv self} {c : class_name α} {m : method_name c}
+    {H : m ≠ constructor c}
     (o : rvar e (ref c))
-    (τ : arglist e m): stmt
-| alloc {c : class_name α}
-    (l : svar e (ref c)): stmt
+    (τ : arglist e m): stmt e
+| alloc {e : tenv self} {c : class_name α}
+    (l : svar e (ref c))
+    (τ : arglist e (constructor c)): stmt e
+-- TODO: get nested definition working
 
 /- A program with a given program signature associates to each method of each class a program block. A program block associated to a method consists of: local variable declarations, and a statement within a typing environment. -/
 structure pblock {self : class_name α} (m : method_name self) :=
   (locals : context α)
   (S : stmt (tenv.mk m locals))
-structure program :=
+structure program (α : Type) [signature α] :=
   (body {self : class_name α} (m : method_name self): pblock m)

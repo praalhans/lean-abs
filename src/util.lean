@@ -1,11 +1,12 @@
 -- (C) Copyright 2019, Hans-Dieter Hiep
 
 import data.finmap data.bool data.vector data.list data.multiset
+import data.finsupp
 
-open multiset nat option
+open multiset nat option finset
 
-universe u
-variable {α : Type u}
+universes u v
+variables {α : Type u} {β : Type v}
 
 /- Indices of a list -/
 inductive pointer: list α → Type u
@@ -56,5 +57,41 @@ def queue.poll : queue α → option (α × queue α)
 | ⟨(x :: l)⟩ := some ⟨x, ⟨l⟩⟩
 instance queue.has_zero : has_zero (queue α) := ⟨⟨[]⟩⟩
 
-/- A multiset can be seen as a stack: each element has a counter. Pushing an element increases the associated counter. Clearly, this is best seen when converting a multiset to a function with finite support. -/
-def push: multiset α → α → multiset α := λm x, cons x m
+/- A function with finite support can be updated. This either adds a new value, or overwrites the value previoulsy mapped. -/
+namespace finsupp
+variables [decidable_eq α] [decidable_eq β] [has_zero β]
+
+def update (f : α →₀ β) (a : α) (b : β) : α →₀ β :=
+  ⟨if b = 0 then f.support.erase a else f.support ∪ {a},
+   (λa', if a = a' then b else f a'), λa',
+    begin
+      by_cases H : (a = a'); by_cases G : (b = 0); simp [G,H],
+      { split, {intro, cases a_1, assumption}, {intro,
+          have : ¬a' = a, intro, apply H,
+            apply eq.symm, assumption, 
+          exact ⟨this, a_1⟩ } },
+      { split, {intro, cases a_1, exfalso,
+          apply H, apply eq.symm, assumption, assumption},
+        { intro, right, assumption } }
+    end⟩
+
+@[simp]
+theorem update.to_fun (f : α →₀ β) (a : α) (b : β) :
+  (update f a b).to_fun = (λa', if a = a' then b else f a') := rfl
+
+@[simp]
+theorem update.app_new_eq (f : α →₀ β) (a : α) (b : β) :
+  (update f a b) a = b :=
+begin
+  simp [coe_fn], unfold has_coe_to_fun.coe, simp
+end
+
+theorem update.app_old_eq (f : α →₀ β) (a : α) (b : β)
+    (c : α) (H : a ≠ c) :
+  (update f a b) c = f c :=
+begin
+  simp [coe_fn], unfold has_coe_to_fun.coe, simp [H, coe_fn],
+  unfold has_coe_to_fun.coe
+end
+
+end finsupp
