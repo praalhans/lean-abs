@@ -3,7 +3,7 @@
 import data.finmap data.bool data.vector data.list data.multiset
 import data.finsupp
 
-open multiset nat option finset
+open multiset nat option finset list
 
 universes u v
 variables {α : Type u} {β : Type v}
@@ -95,3 +95,28 @@ begin
 end
 
 end finsupp
+
+/- Elimination and matching with equality (thanks to Rob Lewis) -/
+def option.elim {α : Type u} {β : Sort v} (t : option α)
+    (f : t = none → β) (g : Π(a : α), t = some a → β) : β :=
+  match t, rfl : (∀ b, t = b → β) with
+  | none, h := f h
+  | (some a), h := g a h
+  end
+
+/- Lift list of options -/
+lemma head_lift_nil {α : Type u} {a : α} :
+  head (lift (@nil α)) ≠ some a :=
+begin
+  intro,
+  simp [lift, has_lift.lift, default, inhabited.default] at a_1,
+  assumption
+end
+lemma tail_lift_some {α : Type u} {hd a : α} {tl : list α} :
+  head (lift (list.cons hd tl)) = some a → hd = a :=
+begin
+  intro,
+  simp [lift, has_lift.lift, coe] at a_1,
+  simp [lift_t, has_lift_t.lift, coe_t, has_coe_t.coe] at a_1,
+  assumption
+end

@@ -153,8 +153,10 @@ def stmt.to_list : stmt e tt → list (statement e)
 | (stmt.cons x xs) := (x :: stmt.to_list xs)
 
 /- A program with a given program signature associates to each method of each class a program block. A program block associated to a method consists of: local variable declarations, and a statement within a typing environment. -/
-structure pblock {self : class_name α} (m : method_name self) :=
+structure pblock (m : method_name self) :=
   (locals : context α)
-  (S : list (statement (tenv.mk m locals)))
+  (S : list (statement ⟨m,locals⟩))
+def pblock.tenv {m : method_name self} (pb : pblock m) :=
+  (tenv.mk m pb.locals)
 structure program (α : Type) [signature α] :=
   (body {self : class_name α} (m : method_name self): pblock m)
