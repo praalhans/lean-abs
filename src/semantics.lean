@@ -26,8 +26,8 @@ instance objects.decidable : decidable_eq β :=
 /- We treat values as being of a type. A value of a reference type is an object of the same class, or null. A value of a data type is a term of the type in the host language. -/
 @[derive decidable_eq]
 inductive value [objects α β] : type α → Type 1
-| object {c : class_name α} (o : β)
-    (H : c = class_of α o) : value (ref c)
+| object {c : class_name α}
+    (o : {o : β // c = class_of α o}) : value (ref c)
 | null (c : class_name α) : value (ref c)
 | term {γ : datatype} : γ → value (data α γ)
 instance value.inhabited [objects α β] :
@@ -41,28 +41,31 @@ def value.unterm [objects α β] {γ : datatype} :
 -- Projection of value to potential object
 def value.unobject {c : class_name α} :
     Π (x : value (ref c)), option β
-| (value.object o _) := o
+| (value.object o) := o
 | (value.null _) := none
 def value.not_null [objects α β] {c : class_name α} (x : value (ref c)) : Prop := x ≠ value.null c
 -- Projection of not-null value to object identity
 def value.the_object {c : class_name α} :
     Π (x : value (ref c)), value.not_null x → β
-| (value.object o _) _ := o
+| (value.object o) _ := o
 | (value.null .(c)) G := begin exfalso, apply G, refl end
 lemma value.class_of_the_object [objects α β] {c : class_name α}
   {x : value (ref c)} (G : value.not_null x) :
   class_of α (value.the_object x G) = c :=
 begin
   cases x,
-  {unfold value.the_object, apply eq.symm, assumption},
+  {unfold value.the_object, apply eq.symm,
+   simp [coe,lift_t,has_lift_t.lift],
+   simp [coe_t,has_coe_t.coe,coe_b,has_coe.coe],
+   exact x_o.property},
   {exfalso, apply G, refl}
 end
 -- Projection of value to object
 def value.elim_object {γ : Sort u} {c : class_name α}
-    (v : value (ref c)) (f : Π(o : β) (H : c = class_of α o),
-    v = value.object o H → γ) (g : v = value.null c → γ) : γ :=
+    (v : value (ref c)) (f : Π(o : {o : β // c = class_of α o}),
+    v = value.object o → γ) (g : v = value.null c → γ) : γ :=
   match v, rfl : (∀ b, v = b → γ) with
-  | (value.object o H), h := f o H h
+  | (value.object o), h := f o h
   | (value.null .(c)), h := g h
   end
 
@@ -103,18 +106,17 @@ def vallist.update [objects α β] {ty : type α} :
 /- An event is either an asynchronous method call of some caller object to a callee object, its method, and for each parameter an argument value. Or, an event is a method selection. -/
 @[derive decidable_eq]
 structure callsite (α β : Type) [objects α β] :=
-  (o : β)
   {c : class_name α}
-  (H : c = class_of α o)
+  (o : {o : β // c = class_of α o})
   (m : method_name c)
   (τ : Σ(m))
 def callsite.elim {γ : Sort u}
-    (cs : callsite α β) (f : Π(o : β)
-      {c : class_name α} (H : c = class_of α o)
+    (cs : callsite α β) (f : Π{c : class_name α}
+      (o : {o : β // c = class_of α o})
       (m : method_name c) (τ : Σ(m)),
-      cs = @callsite.mk α β _ o c H m τ → γ) : γ :=
+      cs = @callsite.mk α β _ c o m τ → γ) : γ :=
   match cs, rfl : (∀ b, cs = b → γ) with
-  | ⟨o,H,m,τ⟩, h := f o H m τ h
+  | ⟨o,m,τ⟩, h := f o m τ h
   end
 
 @[derive decidable_eq]
@@ -124,6 +126,10 @@ inductive event (α β : Type) [objects α β]
 def event.to_callsite : event α β → callsite α β
 | (event.call _ c) := c
 | (event.selection c) := c
+def event.o (e : event α β) : β := e.to_callsite.o
+def event.c (e : event α β) : class_name α := e.to_callsite.c
+def event.m (e : event α β) : method_name e.c := e.to_callsite.m
+def event.τ (e : event α β) : Σ(e.m) := e.to_callsite.τ
 instance event.event_to_callsite : has_coe (event α β)
   (callsite α β) := ⟨event.to_callsite⟩
 
@@ -139,10 +145,12 @@ def event.is_call_to {α : Type} [objects α β] (x : β) :
 @[simp]
 lemma event.is_call_to_object {x : β} {e : event α β}
   {c : callsite α β} : event.is_call_to x e = some c →
-  c.o = x :=
+  c.o.val = x :=
 begin
   intro, cases e; simp [event.is_call_to] at a,
   { by_cases (x = e_a_1.o); simp [h] at a,
+    simp [coe,lift_t,has_lift_t.lift] at h,
+    simp [coe_t,has_coe_t.coe,coe_b,has_coe.coe] at h,
     rewrite h, rewrite ← a, exfalso, assumption },
   { exfalso, assumption }
 end
@@ -154,11 +162,13 @@ def event.is_selection_of {α : Type} [objects α β] (x : β) :
 @[simp]
 lemma event.is_selection_of_object {x : β} {e : event α β}
   {c : callsite α β} : event.is_selection_of x e = some c →
-  c.o = x :=
+  c.o.val = x :=
 begin
   intro, cases e; simp [event.is_selection_of] at a,
   { exfalso, assumption },
   { by_cases (x = e.o); simp [h] at a,
+    simp [coe,lift_t,has_lift_t.lift] at h,
+    simp [coe_t,has_coe_t.coe,coe_b,has_coe.coe] at h,
     rewrite h, rewrite ← a, exfalso, assumption }
 end
 /- The subsequences are obtained by filtering out events. -/
@@ -179,10 +189,10 @@ def global_history.pending_calls_to (θ : global_history α β)
 lemma global_history.pending_calls_to_object
   (θ : global_history α β) (o : β) :
   ∀ c : callsite α β,
-    c ∈ (global_history.pending_calls_to θ o) → c.o = o :=
+    c ∈ (global_history.pending_calls_to θ o) → c.o.val = o :=
 begin
   unfold global_history.pending_calls_to, intro,
-  suffices : c ∈ θ!o → c.o = o, intro, apply this,
+  suffices : c ∈ θ!o → c.o.val = o, intro, apply this,
   simp [remove_all] at a, cases a, assumption,
   simp [global_history.calls_to], intro, intro,
   apply event.is_call_to_object
@@ -194,7 +204,7 @@ def global_history.sched (θ : global_history α β)
 /- Scheduled calls have the same object as requested. -/
 lemma global_history.sched_object (θ : global_history α β)
   (o : β) (c : callsite α β) :
-  (global_history.sched θ o) = some c → c.o = o :=
+  (global_history.sched θ o) = some c → c.o.val = o :=
 begin
   unfold global_history.sched,
   cases H : (global_history.pending_calls_to θ o),
@@ -203,6 +213,15 @@ begin
     apply global_history.pending_calls_to_object θ,
     rewrite H, rewrite this, simp }
 end
+def global_history.collect (θ : global_history α β) : finset β :=
+  to_finset (foldr (λ(e : event α β) l, e.o :: l) [] θ)
+def global_history.fresh (θ : global_history α β)
+    (c : class_name α) : {o:β // c = class_of α o} × value (ref c) :=
+  let o := alloc (θ.collect) c,
+    H : c = class_of α o := begin
+      apply eq.symm, apply alloc_class_of end,
+    oH : {o:β // c = class_of α o} := ⟨o,H⟩
+  in ⟨oH, value.object oH⟩
 
 /- An active process consists of: an argument space (of the current method), a value list (of the local variables), and a list of statements. -/
 variables {C : class_name α} {e : tenv C}
@@ -273,16 +292,18 @@ def local_config.step : local_config β C →
     option ((local_config β C) × option (event α β))
 /- If the process is inactive, we obtain a pending method call. If no method call is pending, no step is taken. Otherwise, the next local configuration is an active process with the arguments of the selected method, a default store, and the body of the method as statement; additionally, a selection event is generated. -/
 | ⟨σ, nil .(C)⟩ := let e := θ.sched σ.id in
-    option.elim e (λ_, none) (λd h, callsite.elim d (λo c H m τ g,
+    option.elim e (λ_, none) (λd h, callsite.elim d (λc o m τ g,
       let p := activate p c m τ,
         G : process c = process C := begin
-          have : (θ.sched σ.id) = some ⟨o, H, m, τ⟩,
+          have : (θ.sched σ.id) = some ⟨o, m, τ⟩,
             rw ← g, assumption,
           have : state_space.id σ = o,
             apply eq.symm,
-            apply global_history.sched_object θ (σ.id) ⟨o,H,m,τ⟩,
+            apply global_history.sched_object θ (σ.id) ⟨o,m,τ⟩,
             assumption,
-          rewrite H,
+          rewrite o.property,
+          simp [coe,lift_t,has_lift_t.lift] at this,
+          simp [coe_t,has_coe_t.coe,coe_b,has_coe.coe] at this,
           rewrite ← this,
           rewrite state_space.class_of_id
         end
@@ -309,27 +330,21 @@ def local_config.step : local_config β C →
     some ⟨⟨σ, active env ⟨τ,ℓ.update l (eval σ π p),t⟩⟩, none⟩
 /- Otherwise, we have an async statement. We evaluate the argument list to a value list; the object pure expression is evaluated to an object value. If that value is null, no step is taken. Otherwise, we generate a method selection event with our object as caller and the appropriate call site, and discard the current statement. -/
 | ⟨σ, active env π@⟨τ,ℓ,(async c m G o τ' :: t)⟩⟩ :=
-    (π.lookup σ o).elim_object (λo H h,
-      some ⟨⟨σ,active env ⟨τ,ℓ,t⟩⟩, some $
-        event.call σ.id ⟨o,H,m,evallist σ π τ'⟩⟩) (λ_, none)
-/- Otherwise, we have an alloc statement. We evaluate the argument list to a value list. A fresh object identity is obtained from the global history. A method selection event to the constructor of the freshly obtained object is generated with an approriate call site, and the current statement is discarded. -/
-| ⟨σ, active env π@⟨τ,ℓ,(alloc c (fvar f) τ' :: t)⟩⟩ := _
-| ⟨σ, active env π@⟨τ,ℓ,(alloc c (lvar ⟨l⟩) τ' :: t)⟩⟩ := _
+    (π.lookup σ o).elim_object
+      (λo h, some ⟨⟨σ,active env ⟨τ,ℓ,t⟩⟩,
+        event.call σ.id ⟨o,m,evallist σ π τ'⟩⟩)
+      (λ_, none)
+/- Otherwise, we have an alloc statement. We evaluate the argument list to a value list. A fresh object identity is obtained from the global history, and stored in the variable. A call event to the constructor of the freshly obtained object is generated with an approriate call site, and the current statement is discarded. -/
+| ⟨σ, active env π@⟨τ,ℓ,(alloc c (fvar f) τ' :: t)⟩⟩ :=
+    let ⟨o, new⟩ := θ.fresh c in
+      some ⟨⟨σ.updatev f new, active env ⟨τ,ℓ,t⟩⟩,
+        event.call σ.id ⟨o,constructor c,evallist σ π τ'⟩⟩
+| ⟨σ, active env π@⟨τ,ℓ,(alloc c (lvar ⟨l⟩) τ' :: t)⟩⟩ :=
+    let ⟨o, new⟩ := θ.fresh c in
+      some ⟨⟨σ, active env ⟨τ,ℓ.update l new,t⟩⟩,
+        event.call σ.id ⟨o,constructor c,evallist σ π τ'⟩⟩
 
 /- A global configuration is a finite set of object configurations and a global history. -/
 structure global_config (α β : Type) [objects α β] :=
   (Γ (self : class_name α): finset (local_config β self))
   (θ: global_history α β)
-
--- TODO: move to some other place
-/- A local history is obtained from a global history and an object identity: it consists of the outgoing calls, an method selections involving the object. -/
-@[reducible]
-def event.is_local_to (α : Type) [objects α β] (x : β) :
-    event α β → Prop
-| (event.call y _) := x = y -- same caller
-| (event.selection c) := x = c.o -- same callee
-instance event.decidable_local (o : β) (e: event α β) :
-    decidable (event.is_local_to α o e) :=
-  begin cases e; apply_instance end
-def local_history (θ : global_history α β) (x : β) :=
-  θ.filter (event.is_local_to α x)
