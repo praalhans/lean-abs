@@ -99,9 +99,9 @@ structure tvar :=
 structure lvar :=
   (idx : list_at ty e.locals)
 structure pvar :=
-  (idx : param_name e.current) (H : ty = param_type idx)
+  (idx : param_name e.current) (H : param_type idx = ty)
 structure fvar :=
-  (idx : field_name e.self) (H : ty = field_type idx)
+  (idx : field_name e.self) (H : field_type idx = ty)
 -- Store variable (LHS only)
 inductive svar
 | fvar: fvar e ty → svar

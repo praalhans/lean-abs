@@ -58,24 +58,12 @@ begin
   {exfalso, apply G, refl}
 end
 
-/- For class C we have a state space Σ(C) consisting of a this identity and an assignment of fields to values. For method m, we have a argument space Σ(m) consisting of an assignment of method parameters to values. -/
+/- For method m, we have a argument space Σ(m) consisting of an assignment of method parameters to values. -/
 @[derive decidable_eq]
 structure arg_space [objects α β]
     {self : class_name α} (m : method_name self) :=
   (map (p : param_name m) : value (param_type p))
-structure state_space [objects α β] (self : class_name α) :=
-  (map (f : field_name self) : value (field_type f))
-  (this : value (ref self))
-  (H : value.not_null this)
-def state_space.id [objects α β] {self : class_name α}
-  (σ : state_space self) : β := value.the_object σ.this σ.H
-lemma state_space.class_of_id [objects α β] {self : class_name α}
-  (σ : state_space self) : class_of α σ.id = self :=
-begin
-  unfold state_space.id, apply value.class_of_the_object
-end
 notation Σ(m) := arg_space m
-notation Σ(C) := state_space C
 
 /- Given a list of types, we have a value list of values with matching types. -/
 inductive vallist [objects α β] : list (type α) → Type 1
@@ -92,11 +80,17 @@ instance vallist.inhabited [objects α β] (l : list (type α)) :
 /- Given a value list and an index in the list of types, we obtain a value. -/
 def vallist.lookup [objects α β] {ty : type α} :
     Π {l : context α}, vallist l → list_at ty l → value ty
-| (x :: xs) (vallist.cons (v : value x) _)
-  (list_at.here .(x) .(xs)) := v
-| (x :: xs) (vallist.cons _ (ys : vallist xs))
-  (list_at.tail .(x) (zs : list_at .(ty) xs)) :=
+| (x :: xs) (vallist.cons v _) (list_at.here .(x) .(xs)) := v
+| (x :: xs) (vallist.cons _ ys) (list_at.tail .(x) zs) :=
     vallist.lookup ys zs
+/- Given a value list and an index and a new value, we obtain a new value list which updates the given index. -/
+def vallist.update [objects α β] {ty : type α} :
+    Π {l : context α}, vallist l → list_at ty l →
+    value ty → vallist l
+| (x :: xs) (vallist.cons _ tl) (list_at.here .(x) .(xs)) v :=
+    vallist.cons v tl
+| (x :: xs) (vallist.cons v ys) (list_at.tail .(x) zs) w :=
+    vallist.cons v (vallist.update ys zs w)
 
 /- An event is either an asynchronous method call of some caller object to a callee object, its method, and for each parameter an argument value. Or, an event is a method selection. -/
 @[derive decidable_eq]
@@ -203,12 +197,31 @@ variables {C : class_name α} {e : tenv C}
 structure active_process (e : tenv C) :=
   (args : Σ(e.current)) (store : vallist e.locals)
   (body : list (statement e))
+/- For class C we have a state space Σ(C) consisting of a this identity and an assignment of fields to values. -/
+structure state_space [objects α β] (self : class_name α) :=
+  (map (f : field_name self) : value (field_type f))
+  (this : value (ref self))
+  (N : value.not_null this)
+def state_space.id [objects α β] {self : class_name α}
+  (σ : state_space self) : β := value.the_object σ.this σ.H
+lemma state_space.class_of_id [objects α β] {self : class_name α}
+  (σ : state_space self) : class_of α σ.id = self :=
+begin
+  unfold state_space.id, apply value.class_of_the_object
+end
+/- A state space can be updated. -/
+def state_space.update (f : field_name C)
+    (v : value (field_type f)) : state_space C → state_space C
+| ⟨map, this, N⟩ := ⟨λg, if H : f = g
+    then cast begin rewrite H end v else map g,this,N⟩
+notation Σ(C) := state_space C
+
 /- Given an object space and active process, we can lookup the value of a read variable. -/
-def active_process.lookup (π : active_process e) (σ : Σ(C))
+def active_process.lookup (σ : Σ(C)) (π : active_process e)
     {tx : type α} : rvar e tx → value tx
-| (rvar.tvar t) := eq.mpr (congr_arg _ t.H) σ.this
-| (rvar.fvar f) := eq.mpr (congr_arg _ f.H) $ σ.map f.idx
-| (rvar.pvar p) := eq.mpr (congr_arg _ p.H) $ π.args.map p.idx
+| (rvar.tvar t) := cast begin rewrite t.H, refl end σ.this
+| (rvar.fvar f) := cast begin rewrite f.H end $ σ.map f.idx
+| (rvar.pvar p) := cast begin rewrite p.H end $ π.args.map p.idx
 | (rvar.lvar l) := π.store.lookup l.idx
 /- Evaluating a pure expression, Val(p)(σ,π). -/
 def eval (σ : Σ(C)) (π : active_process e) :
@@ -217,21 +230,24 @@ def eval (σ : Σ(C)) (π : active_process e) :
 | _ (lookup r) := π.lookup σ r
 | _ (const _ v) := value.term v
 | _ (apply f r) := value.term $ f (eval r).unterm
+/- A state space can be updated, given a field variable in a typing environment related to the same class. -/
+def state_space.updatev {ty : type α}
+    (fvar : fvar e ty) (v : value ty) (σ : Σ(C)) : Σ(C) :=
+  σ.update fvar.idx (cast begin rewrite fvar.H end v)
+
+/- We fix a program, and global history. -/
+variables (p : program α) (θ : global_history α β)
 /- A process is either nil or an active process. -/
 inductive process {α : Type} [objects α β] (C : class_name α)
 | nil : process
 | active (env : tenv C) (a : active_process env) : process
-
-/- A local configuration is an object and its process. -/
-structure local_config (β : Type) [objects α β]
-  (C : class_name α) := (σ : Σ(C)) (m : process C)
-
-/- We fix a program, and global history. -/
-variables (p : program α) (θ : global_history α β)
 /- Given a method and arguments, we can activate a process. -/
 def process.activate (C : class_name α) (m : method_name C)
     (τ : Σ(m)) : process C :=
   process.active (p.body m).tenv ⟨τ,default _,(p.body m).S⟩
+/- A local configuration is an object and its process. -/
+structure local_config (β : Type) [objects α β]
+  (C : class_name α) := (σ : Σ(C)) (m : process C)
 
 open stmt process svar rvar
 /- A step is taken on a local configuration. -/
@@ -268,13 +284,15 @@ def local_config.step : local_config β C →
     | ff := some ⟨⟨σ, active env ⟨τ,ℓ,t⟩⟩, none⟩
     end
 /- Otherwise, we consider the assignment statement. We evaluate the pure expression, and the result is taken to update the variable on the left-hand side: if it is a field then the object space field state is updated, otherwise it is a local and the store is updated. In both cases, the current statement is discarded. -/
-| ⟨σ, active env π@⟨τ,ℓ,(assign (fvar _) p :: t)⟩⟩ := _
-| ⟨σ, active env π@⟨τ,ℓ,(assign (lvar _) p :: t)⟩⟩ := _
+| ⟨σ, active env π@⟨τ,ℓ,(assign (fvar f) p :: t)⟩⟩ :=
+    some ⟨⟨σ.updatev f (eval σ π p), active env ⟨τ,ℓ,t⟩⟩, none⟩
+| ⟨σ, active env π@⟨τ,ℓ,(assign (lvar ⟨l⟩) p :: t)⟩⟩ :=
+    some ⟨⟨σ, active env ⟨τ,ℓ.update l (eval σ π p),t⟩⟩, none⟩
 /- Otherwise, we have an async statement. We evaluate the argument list to a value list; the object pure expression is evaluated to an object value. If that value is null, no step is taken. Otherwise, we generate a method selection event with our object as caller and the appropriate call site, and discard the current statement. -/
 | ⟨σ, active env π@⟨τ,ℓ,(async H o τ' :: t)⟩⟩ := _
 /- Otherwise, we have an alloc statement. We evaluate the argument list to a value list. A fresh object identity is obtained from the global history. A method selection event to the constructor of the freshly obtained object is generated with an approriate call site, and the current statement is discarded. -/
-| ⟨σ, active env π@⟨τ,ℓ,(alloc c (fvar _) τ' :: t)⟩⟩ := _
-| ⟨σ, active env π@⟨τ,ℓ,(alloc c (lvar _) τ' :: t)⟩⟩ := _
+| ⟨σ, active env π@⟨τ,ℓ,(alloc c (fvar f) τ' :: t)⟩⟩ := _
+| ⟨σ, active env π@⟨τ,ℓ,(alloc c (lvar ⟨l⟩) τ' :: t)⟩⟩ := _
 
 /- A global configuration is a finite set of object configurations and a global history. -/
 structure global_config (α β : Type) [objects α β] :=
