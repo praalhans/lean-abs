@@ -1,4 +1,4 @@
--- (C) Copyright 2019, Hans-Dieter Hiep
+/- Copyright 2019 (c) Hans-Dieter Hiep. All rights reserved. Released under MIT license as described in the file LICENSE. -/
 
 import syntax data.finsupp
 

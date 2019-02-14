@@ -1,3 +1,4 @@
+/- Copyright 2019 (c) Hans-Dieter Hiep. All rights reserved. Released under MIT license as described in the file LICENSE. -/
 
 import semantics
 
