@@ -71,11 +71,10 @@ class signature (α : Type) extends names α : Type 1 :=
 (cdef (x : class_name α): cdecl x) (main: class_name α)
 
 variable [signature α]
-variable {self : class_name α} 
-variable {m : method_name self}
+variable {self : class_name α}
 
-def param_type (p : param_name m) : type α :=
-  (((signature.cdef self).mdecl m).pdecl p).type
+def param_type {m : method_name self} (p : param_name m)
+  : type α := (((signature.cdef self).mdecl m).pdecl p).type
 def field_type (f : field_name self) : type α :=
   ((signature.cdef self).fdecl f).type
 def constructor (self : class_name α) : method_name self :=
@@ -93,6 +92,7 @@ open tenv
 /- A note on terminology. Parameter: as declared in signature. Argument: a pure expression as supplied in a method call. -/
 
 /- Within a typing environment, we refer to numerous things. This refers to an object identity of the enclosed class. A local variable refers to the index within the declared local variables. A parameter refers to a parameter name of the current method. A field refers to a field within the enclosed class. -/
+section
 variables (e : tenv self) (ty : type α)
 structure tvar :=
   (H : ty = ref e.self)
@@ -112,8 +112,10 @@ inductive rvar
 | fvar: fvar e ty → rvar
 | pvar: pvar e ty → rvar
 | lvar: lvar e ty → rvar
+end
+
 /- A pure expression within a typing environment is either: a constant data value, a function application on data values, value lookup in environment, referential equality check. -/
-inductive pexp : type α → Type 1
+inductive pexp (e : tenv self) : type α → Type 1
 | const {γ : datatype}: γ → pexp (data α γ)
 | apply {γ δ : datatype}: (γ.host → δ.host) → pexp (data α γ) →
     pexp (data α δ)
@@ -121,29 +123,38 @@ inductive pexp : type α → Type 1
 | requal {c : class_name α}:
     pexp (ref c) → pexp (ref c) → pexp (boolean α)
 /- An argument list assigns to each parameter of a method a variable within some typing environment of the right type. -/
-structure arglist {c : class_name α} (m : method_name c) :=
+structure arglist (e : tenv self)
+    {c : class_name α} (m : method_name c) :=
   (map (p : param_name m) : pexp e (param_type p))
 /- A statement within a typing environment is either: a skip, a sequential composition, a branch, a loop, an assignment, an asynchronous method call, an object allocation. -/
-inductive stmt {α : Type} [signature α]
-    {self : class_name α} : Π (e : tenv self), Type 1
-| ite {e : tenv self}:
-    pexp e (boolean α) → list (stmt e) → list (stmt e) → stmt e
-| while {e : tenv self}:
-    pexp e (boolean α) → list (stmt e) → stmt e
-| assign {e : tenv self} {ty : type α}
-    (l : svar e ty): pexp e ty → stmt e
-| async {e : tenv self} {c : class_name α} {m : method_name c}
-    {H : m ≠ constructor c}
+inductive stmt (e : tenv self) : bool → Type 1
+| ite: pexp e (boolean α) → stmt tt → stmt tt → stmt ff
+| while: pexp e (boolean α) → stmt tt → stmt ff
+| assign {ty : type α} (l : svar e ty):
+    pexp e ty → stmt ff
+| async {c : class_name α} {m : method_name c}
+    (H : m ≠ constructor c)
     (o : rvar e (ref c))
-    (τ : arglist e m): stmt e
-| alloc {e : tenv self} {c : class_name α}
+    (τ : arglist e m): stmt ff
+| alloc {c : class_name α}
     (l : svar e (ref c))
-    (τ : arglist e (constructor c)): stmt e
--- TODO: get nested definition working
+    (τ : arglist e (constructor c)): stmt ff
+| nil: stmt tt
+| cons: stmt ff → stmt tt → stmt tt
+/- The encoding of a nested inductive type failed at the moment in Lean 3.4.2. Instead, we encode the nesting ourselves: the boolean argument determines which constructors are applicable. It is true if it is a list of statements, false if it is a single statement (thanks to Mario Carneiro).  -/
+variable {e : tenv self}
+@[reducible]
+def statement (e : tenv self) := stmt e ff
+def stmt.from_list : list (statement e) → stmt e tt
+| [] := stmt.nil e
+| (x :: xs) := stmt.cons x (stmt.from_list xs)
+def stmt.to_list : stmt e tt → list (statement e)
+| (stmt.nil .(e)) := []
+| (stmt.cons x xs) := (x :: stmt.to_list xs)
 
 /- A program with a given program signature associates to each method of each class a program block. A program block associated to a method consists of: local variable declarations, and a statement within a typing environment. -/
 structure pblock {self : class_name α} (m : method_name self) :=
   (locals : context α)
-  (S : stmt (tenv.mk m locals))
+  (S : list (statement (tenv.mk m locals)))
 structure program (α : Type) [signature α] :=
   (body {self : class_name α} (m : method_name self): pblock m)
