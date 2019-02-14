@@ -98,31 +98,6 @@ def vallist.lookup [objects α β] {ty : type α} :
   (list_at.tail .(x) (zs : list_at .(ty) xs)) :=
     vallist.lookup ys zs
 
-variables {C : class_name α} {e : tenv C}
-
-/- An active process consists of: an argument space (of the current method), a value list (of the local variables), and a list of statements. -/
-structure active_process (e : tenv C) :=
-  (args : Σ(e.current)) (store : vallist e.locals)
-  (body : list (statement e))
-/- Given an object space and active process, we can lookup the value of a read variable. -/
-def active_process.lookup (π : active_process e) (σ : Σ(C))
-    {tx : type α} : rvar e tx → value tx
-| (rvar.tvar t) := eq.mpr (congr_arg _ t.H) $ σ.this
-| (rvar.fvar f) := eq.mpr (congr_arg _ f.H) $ σ.map f.idx
-| (rvar.pvar p) := eq.mpr (congr_arg _ p.H) $ π.args.map p.idx
-| (rvar.lvar l) := π.store.lookup l.idx
-/- Evaluating a pure expression, Val(p)(σ,π). -/
-def eval (σ : Σ(C)) (π : active_process e) :
-    Π {ty : type α}, pexp e ty → value ty
-| bool (requal l r) := value.term $ to_bool (eval l = eval r)
-| _ (lookup r) := π.lookup σ r
-| _ (const _ v) := value.term v
-| _ (apply f r) := value.term $ f (eval r).unterm
-/- A process is either nil or an active process. -/
-inductive process {α : Type} [objects α β] (C : class_name α)
-| nil : process
-| active (e : tenv C) (a : active_process e) : process
-
 /- An event is either an asynchronous method call of some caller object to a callee object, its method, and for each parameter an argument value. Or, an event is a method selection. -/
 @[derive decidable_eq]
 structure callsite (α β : Type) [objects α β] :=
@@ -223,23 +198,49 @@ begin
     rewrite H, rewrite this, simp }
 end
 
-/- We fix a program, and global history. -/
-variables (p : program α) (θ : global_history α β)
-/- A local configuration is an object identity and a process. -/
+/- An active process consists of: an argument space (of the current method), a value list (of the local variables), and a list of statements. -/
+variables {C : class_name α} {e : tenv C}
+structure active_process (e : tenv C) :=
+  (args : Σ(e.current)) (store : vallist e.locals)
+  (body : list (statement e))
+/- Given an object space and active process, we can lookup the value of a read variable. -/
+def active_process.lookup (π : active_process e) (σ : Σ(C))
+    {tx : type α} : rvar e tx → value tx
+| (rvar.tvar t) := eq.mpr (congr_arg _ t.H) σ.this
+| (rvar.fvar f) := eq.mpr (congr_arg _ f.H) $ σ.map f.idx
+| (rvar.pvar p) := eq.mpr (congr_arg _ p.H) $ π.args.map p.idx
+| (rvar.lvar l) := π.store.lookup l.idx
+/- Evaluating a pure expression, Val(p)(σ,π). -/
+def eval (σ : Σ(C)) (π : active_process e) :
+    Π {ty : type α}, pexp e ty → value ty
+| bool (requal l r) := value.term $ to_bool (eval l = eval r)
+| _ (lookup r) := π.lookup σ r
+| _ (const _ v) := value.term v
+| _ (apply f r) := value.term $ f (eval r).unterm
+/- A process is either nil or an active process. -/
+inductive process {α : Type} [objects α β] (C : class_name α)
+| nil : process
+| active (env : tenv C) (a : active_process env) : process
+
+/- A local configuration is an object and its process. -/
 structure local_config (β : Type) [objects α β]
   (C : class_name α) := (σ : Σ(C)) (m : process C)
+
+/- We fix a program, and global history. -/
+variables (p : program α) (θ : global_history α β)
 /- Given a method and arguments, we can activate a process. -/
 def process.activate (C : class_name α) (m : method_name C)
     (τ : Σ(m)) : process C :=
   process.active (p.body m).tenv ⟨τ,default _,(p.body m).S⟩
 
+open stmt process svar rvar
 /- A step is taken on a local configuration. -/
-def local_config.step : local_config β C → option ((local_config β C) × option (event α β))
-    
+def local_config.step : local_config β C →
+    option ((local_config β C) × option (event α β))
 /- If the process is inactive, we obtain a pending method call. If no method call is pending, no step is taken. Otherwise, the next local configuration is an active process with the arguments of the selected method, a default store, and the body of the method as statement; additionally, a selection event is generated. -/
-| ⟨σ, process.nil .(C)⟩ := let c := θ.sched σ.id in
+| ⟨σ, nil .(C)⟩ := let c := θ.sched σ.id in
     option.elim c (λh, none) (λd h, callsite.elim d (λo m τ g,
-      let p := process.activate p (class_of α o) m τ,
+      let p := activate p (class_of α o) m τ,
         H : class_of α o = C := begin
           have : (θ.sched σ.id) = some ⟨o, m, τ⟩,
             rw ← g, assumption,
@@ -252,11 +253,28 @@ def local_config.step : local_config β C → option ((local_config β C) × opt
         end
       in some ⟨⟨σ, cast (congr_arg _ H) p⟩, event.selection d⟩))
 /- Otherwise, there is an active process. We look at the list of statements. If the list is empty, the process becomes inactive. -/
+| ⟨σ, active _ ⟨τ,ℓ,nil⟩⟩ :=
+    some ⟨⟨σ, nil _⟩, none⟩
 /- Otherwise, there is a current statement. If the current statement is an if statement, for which we evaluate the boolean pure expression. If it is true, we replace the current statement by those of the then-branch. Otherwise, we replace the current statement by those of the else-branch. -/
-/- Otherwise, there is a while statement. We evaluate the boolean pure expression. If it is true, we prepend the body to the current statements. Otherwise, we discard the current statement. -/
+| ⟨σ, active env π@⟨τ,ℓ,(ite p thenb elseb :: t)⟩⟩ :=
+    match (eval σ π p).unterm with
+    | tt := some ⟨⟨σ, active env ⟨τ,ℓ,to_list thenb ++ t⟩⟩, none⟩
+    | ff := some ⟨⟨σ, active env ⟨τ,ℓ,to_list elseb ++ t⟩⟩, none⟩
+    end
+/- Otherwise, there is a while statement. We evaluate the boolean pure expression. If it is true, we prepend the body to all statements, before but including the current while statement. Otherwise, we discard the current statement. -/
+| ⟨σ, active env π@⟨τ,ℓ,S@(while p dob :: t)⟩⟩ :=
+    match (eval σ π p).unterm with
+    | tt := some ⟨⟨σ, active env ⟨τ,ℓ,to_list dob ++ S⟩⟩, none⟩
+    | ff := some ⟨⟨σ, active env ⟨τ,ℓ,t⟩⟩, none⟩
+    end
 /- Otherwise, we consider the assignment statement. We evaluate the pure expression, and the result is taken to update the variable on the left-hand side: if it is a field then the object space field state is updated, otherwise it is a local and the store is updated. In both cases, the current statement is discarded. -/
+| ⟨σ, active env π@⟨τ,ℓ,(assign (fvar _) p :: t)⟩⟩ := _
+| ⟨σ, active env π@⟨τ,ℓ,(assign (lvar _) p :: t)⟩⟩ := _
 /- Otherwise, we have an async statement. We evaluate the argument list to a value list; the object pure expression is evaluated to an object value. If that value is null, no step is taken. Otherwise, we generate a method selection event with our object as caller and the appropriate call site, and discard the current statement. -/
+| ⟨σ, active env π@⟨τ,ℓ,(async H o τ' :: t)⟩⟩ := _
 /- Otherwise, we have an alloc statement. We evaluate the argument list to a value list. A fresh object identity is obtained from the global history. A method selection event to the constructor of the freshly obtained object is generated with an approriate call site, and the current statement is discarded. -/
+| ⟨σ, active env π@⟨τ,ℓ,(alloc c (fvar _) τ' :: t)⟩⟩ := _
+| ⟨σ, active env π@⟨τ,ℓ,(alloc c (lvar _) τ' :: t)⟩⟩ := _
 
 /- A global configuration is a finite set of object configurations and a global history. -/
 structure global_config (α β : Type) [objects α β] :=

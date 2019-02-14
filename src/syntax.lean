@@ -136,7 +136,7 @@ inductive stmt (e : tenv self) : bool → Type 1
     (H : m ≠ constructor c)
     (o : rvar e (ref c))
     (τ : arglist e m): stmt ff
-| alloc {c : class_name α}
+| alloc (c : class_name α)
     (l : svar e (ref c))
     (τ : arglist e (constructor c)): stmt ff
 | nil: stmt tt
