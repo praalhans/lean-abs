@@ -126,13 +126,14 @@ inductive pexp (e : tenv self) : type α → Type 1
 structure arglist (e : tenv self)
     {c : class_name α} (m : method_name c) :=
   (map (p : param_name m) : pexp e (param_type p))
+
 /- A statement within a typing environment is either: a skip, a sequential composition, a branch, a loop, an assignment, an asynchronous method call, an object allocation. -/
 inductive stmt (e : tenv self) : bool → Type 1
 | ite: pexp e (boolean α) → stmt tt → stmt tt → stmt ff
 | while: pexp e (boolean α) → stmt tt → stmt ff
 | assign {ty : type α} (l : svar e ty):
     pexp e ty → stmt ff
-| async {c : class_name α} {m : method_name c}
+| async (c : class_name α) (m : method_name c)
     (H : m ≠ constructor c)
     (o : rvar e (ref c))
     (τ : arglist e m): stmt ff

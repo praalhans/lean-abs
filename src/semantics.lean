@@ -38,13 +38,13 @@ instance value.inhabited [objects α β] :
 def value.unterm [objects α β] {γ : datatype} :
     Π (x : value (data α γ)), γ.host
 | (value.term t) := t
--- Projection of value to object
+-- Projection of value to potential object
 def value.unobject {c : class_name α} :
     Π (x : value (ref c)), option β
 | (value.object o _) := o
 | (value.null _) := none
 def value.not_null [objects α β] {c : class_name α} (x : value (ref c)) : Prop := x ≠ value.null c
--- Projection of value to object (guarantee)
+-- Projection of not-null value to object identity
 def value.the_object {c : class_name α} :
     Π (x : value (ref c)), value.not_null x → β
 | (value.object o _) _ := o
@@ -57,6 +57,14 @@ begin
   {unfold value.the_object, apply eq.symm, assumption},
   {exfalso, apply G, refl}
 end
+-- Projection of value to object
+def value.elim_object {γ : Sort u} {c : class_name α}
+    (v : value (ref c)) (f : Π(o : β) (H : c = class_of α o),
+    v = value.object o H → γ) (g : v = value.null c → γ) : γ :=
+  match v, rfl : (∀ b, v = b → γ) with
+  | (value.object o H), h := f o H h
+  | (value.null .(c)), h := g h
+  end
 
 /- For method m, we have a argument space Σ(m) consisting of an assignment of method parameters to values. -/
 @[derive decidable_eq]
@@ -96,13 +104,17 @@ def vallist.update [objects α β] {ty : type α} :
 @[derive decidable_eq]
 structure callsite (α β : Type) [objects α β] :=
   (o : β)
-  (m : method_name (class_of α o))
+  {c : class_name α}
+  (H : c = class_of α o)
+  (m : method_name c)
   (τ : Σ(m))
-def callsite.elim {γ : Sort u} (c : callsite α β)
-    (f : Π(o : β) (m : method_name (class_of α o)) (τ : Σ(m)),
-      c = ⟨o,m,τ⟩ → γ) : γ :=
-  match c, rfl : (∀ b, c = b → γ) with
-  | ⟨o,m,τ⟩, h := f o m τ h
+def callsite.elim {γ : Sort u}
+    (cs : callsite α β) (f : Π(o : β)
+      {c : class_name α} (H : c = class_of α o)
+      (m : method_name c) (τ : Σ(m)),
+      cs = @callsite.mk α β _ o c H m τ → γ) : γ :=
+  match cs, rfl : (∀ b, cs = b → γ) with
+  | ⟨o,H,m,τ⟩, h := f o H m τ h
   end
 
 @[derive decidable_eq]
@@ -203,7 +215,7 @@ structure state_space [objects α β] (self : class_name α) :=
   (this : value (ref self))
   (N : value.not_null this)
 def state_space.id [objects α β] {self : class_name α}
-  (σ : state_space self) : β := value.the_object σ.this σ.H
+  (σ : state_space self) : β := value.the_object σ.this σ.N
 lemma state_space.class_of_id [objects α β] {self : class_name α}
   (σ : state_space self) : class_of α σ.id = self :=
 begin
@@ -230,6 +242,11 @@ def eval (σ : Σ(C)) (π : active_process e) :
 | _ (lookup r) := π.lookup σ r
 | _ (const _ v) := value.term v
 | _ (apply f r) := value.term $ f (eval r).unterm
+/- Evaluating an argument list to an argument space. -/
+def evallist (σ : Σ(C)) (π : active_process e)
+    {c : class_name α} {m : method_name c} : arglist e m → Σ(m)
+| ⟨map⟩ := ⟨λa, eval σ π (map a)⟩
+
 /- A state space can be updated, given a field variable in a typing environment related to the same class. -/
 def state_space.updatev {ty : type α}
     (fvar : fvar e ty) (v : value ty) (σ : Σ(C)) : Σ(C) :=
@@ -250,24 +267,26 @@ structure local_config (β : Type) [objects α β]
   (C : class_name α) := (σ : Σ(C)) (m : process C)
 
 open stmt process svar rvar
+set_option trace.check true
 /- A step is taken on a local configuration. -/
 def local_config.step : local_config β C →
     option ((local_config β C) × option (event α β))
 /- If the process is inactive, we obtain a pending method call. If no method call is pending, no step is taken. Otherwise, the next local configuration is an active process with the arguments of the selected method, a default store, and the body of the method as statement; additionally, a selection event is generated. -/
-| ⟨σ, nil .(C)⟩ := let c := θ.sched σ.id in
-    option.elim c (λh, none) (λd h, callsite.elim d (λo m τ g,
-      let p := activate p (class_of α o) m τ,
-        H : class_of α o = C := begin
-          have : (θ.sched σ.id) = some ⟨o, m, τ⟩,
+| ⟨σ, nil .(C)⟩ := let e := θ.sched σ.id in
+    option.elim e (λ_, none) (λd h, callsite.elim d (λo c H m τ g,
+      let p := activate p c m τ,
+        G : process c = process C := begin
+          have : (θ.sched σ.id) = some ⟨o, H, m, τ⟩,
             rw ← g, assumption,
           have : state_space.id σ = o,
             apply eq.symm,
-            apply global_history.sched_object θ (σ.id) ⟨o,m,τ⟩,
+            apply global_history.sched_object θ (σ.id) ⟨o,H,m,τ⟩,
             assumption,
+          rewrite H,
           rewrite ← this,
-          apply state_space.class_of_id
+          rewrite state_space.class_of_id
         end
-      in some ⟨⟨σ, cast (congr_arg _ H) p⟩, event.selection d⟩))
+      in some ⟨⟨σ, cast G p⟩, event.selection d⟩))
 /- Otherwise, there is an active process. We look at the list of statements. If the list is empty, the process becomes inactive. -/
 | ⟨σ, active _ ⟨τ,ℓ,nil⟩⟩ :=
     some ⟨⟨σ, nil _⟩, none⟩
@@ -289,7 +308,10 @@ def local_config.step : local_config β C →
 | ⟨σ, active env π@⟨τ,ℓ,(assign (lvar ⟨l⟩) p :: t)⟩⟩ :=
     some ⟨⟨σ, active env ⟨τ,ℓ.update l (eval σ π p),t⟩⟩, none⟩
 /- Otherwise, we have an async statement. We evaluate the argument list to a value list; the object pure expression is evaluated to an object value. If that value is null, no step is taken. Otherwise, we generate a method selection event with our object as caller and the appropriate call site, and discard the current statement. -/
-| ⟨σ, active env π@⟨τ,ℓ,(async H o τ' :: t)⟩⟩ := _
+| ⟨σ, active env π@⟨τ,ℓ,(async c m G o τ' :: t)⟩⟩ :=
+    (π.lookup σ o).elim_object (λo H h,
+      some ⟨⟨σ,active env ⟨τ,ℓ,t⟩⟩, some $
+        event.call σ.id ⟨o,H,m,evallist σ π τ'⟩⟩) (λ_, none)
 /- Otherwise, we have an alloc statement. We evaluate the argument list to a value list. A fresh object identity is obtained from the global history. A method selection event to the constructor of the freshly obtained object is generated with an approriate call site, and the current statement is discarded. -/
 | ⟨σ, active env π@⟨τ,ℓ,(alloc c (fvar f) τ' :: t)⟩⟩ := _
 | ⟨σ, active env π@⟨τ,ℓ,(alloc c (lvar ⟨l⟩) τ' :: t)⟩⟩ := _
