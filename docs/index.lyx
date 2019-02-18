@@ -10,8 +10,8 @@
 
 \usepackage{color}
 \definecolor{keywordcolor}{rgb}{0.7, 0.1, 0.1}
-\definecolor{commentcolor}{rgb}{0.4, 0.4, 0.4}
 \definecolor{symbolcolor}{rgb}{0.0, 0.1, 0.6}
+\definecolor{tacticcolor}{rgb}{0.7, 0.1, 0.6}
 \definecolor{sortcolor}{rgb}{0.1, 0.5, 0.1}
 
 \usepackage{listings}
@@ -21,8 +21,8 @@
 \use_default_options true
 \maintain_unincluded_children false
 \language english
-\language_package default
-\inputencoding utf8x
+\language_package babel
+\inputencoding utf8
 \fontencoding global
 \font_roman "default" "default"
 \font_sans "default" "default"
@@ -42,7 +42,7 @@
 \paperfontsize default
 \spacing single
 \use_hyperref false
-\papersize default
+\papersize a4paper
 \use_geometry false
 \use_package amsmath 1
 \use_package amssymb 1
@@ -60,7 +60,7 @@
 \use_bibtopic false
 \use_indices false
 \paperorientation portrait
-\suppress_date false
+\suppress_date true
 \justification true
 \use_refstyle 1
 \index Index

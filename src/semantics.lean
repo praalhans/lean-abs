@@ -43,7 +43,8 @@ def value.unobject {c : class_name α} :
     Π (x : value (ref c)), option β
 | (value.object o) := o
 | (value.null _) := none
-def value.not_null [objects α β] {c : class_name α} (x : value (ref c)) : Prop := x ≠ value.null c
+def value.not_null [objects α β] {c : class_name α}
+  (x : value (ref c)) : Prop := x ≠ value.null c
 -- Projection of not-null value to object identity
 def value.the_object {c : class_name α} :
     Π (x : value (ref c)), value.not_null x → β
@@ -135,7 +136,8 @@ instance event.event_to_callsite : has_coe (event α β)
 
 /- A global history is a sequence of events. -/
 @[reducible]
-def global_history (α β : Type) [objects α β] := list (event α β)
+def global_history (α β : Type) [objects α β] :=
+  list (event α β)
 /- There are two subsequences of a global history. The first consists only of call events with the object as callee (abstracted to its corresponding call site), the second consists only of selection events with the object as callee. -/
 def event.is_call_to {α : Type} [objects α β] (x : β) :
     event α β → option (callsite α β)
@@ -213,10 +215,12 @@ begin
     apply global_history.pending_calls_to_object θ,
     rewrite H, rewrite this, simp }
 end
-def global_history.collect (θ : global_history α β) : finset β :=
+def global_history.collect
+    (θ : global_history α β) : finset β :=
   to_finset (foldr (λ(e : event α β) l, e.o :: l) [] θ)
 def global_history.fresh (θ : global_history α β)
-    (c : class_name α) : {o:β // c = class_of α o} × value (ref c) :=
+    (c : class_name α) :
+      {o : β // c = class_of α o} × value (ref c) :=
   let o := alloc (θ.collect) c,
     H : c = class_of α o := begin
       apply eq.symm, apply alloc_class_of end,
@@ -235,8 +239,9 @@ structure state_space [objects α β] (self : class_name α) :=
   (N : value.not_null this)
 def state_space.id [objects α β] {self : class_name α}
   (σ : state_space self) : β := value.the_object σ.this σ.N
-lemma state_space.class_of_id [objects α β] {self : class_name α}
-  (σ : state_space self) : class_of α σ.id = self :=
+lemma state_space.class_of_id [objects α β]
+  {self : class_name α} (σ : state_space self) :
+  class_of α σ.id = self :=
 begin
   unfold state_space.id, apply value.class_of_the_object
 end
@@ -313,15 +318,15 @@ def local_config.step : local_config β C →
     some ⟨⟨σ, nil _⟩, none⟩
 /- Otherwise, there is a current statement. If the current statement is an if statement, for which we evaluate the boolean pure expression. If it is true, we replace the current statement by those of the then-branch. Otherwise, we replace the current statement by those of the else-branch. -/
 | ⟨σ, active env π@⟨τ,ℓ,(ite p thenb elseb :: t)⟩⟩ :=
-    match (eval σ π p).unterm with
-    | tt := some ⟨⟨σ, active env ⟨τ,ℓ,to_list thenb ++ t⟩⟩, none⟩
-    | ff := some ⟨⟨σ, active env ⟨τ,ℓ,to_list elseb ++ t⟩⟩, none⟩
+    some $ match (eval σ π p).unterm with
+    | tt := ⟨⟨σ, active env ⟨τ,ℓ,to_list thenb ++ t⟩⟩, none⟩
+    | ff := ⟨⟨σ, active env ⟨τ,ℓ,to_list elseb ++ t⟩⟩, none⟩
     end
 /- Otherwise, there is a while statement. We evaluate the boolean pure expression. If it is true, we prepend the body to all statements, before but including the current while statement. Otherwise, we discard the current statement. -/
 | ⟨σ, active env π@⟨τ,ℓ,S@(while p dob :: t)⟩⟩ :=
-    match (eval σ π p).unterm with
-    | tt := some ⟨⟨σ, active env ⟨τ,ℓ,to_list dob ++ S⟩⟩, none⟩
-    | ff := some ⟨⟨σ, active env ⟨τ,ℓ,t⟩⟩, none⟩
+    some $ match (eval σ π p).unterm with
+    | tt := ⟨⟨σ, active env ⟨τ,ℓ,to_list dob ++ S⟩⟩, none⟩
+    | ff := ⟨⟨σ, active env ⟨τ,ℓ,t⟩⟩, none⟩
     end
 /- Otherwise, we consider the assignment statement. We evaluate the pure expression, and the result is taken to update the variable on the left-hand side: if it is a field then the object space field state is updated, otherwise it is a local and the store is updated. In both cases, the current statement is discarded. -/
 | ⟨σ, active env π@⟨τ,ℓ,(assign (fvar f) p :: t)⟩⟩ :=
