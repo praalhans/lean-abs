@@ -41,23 +41,20 @@ refine, repeat, whnf, rotate, rotate_left, rotate_right, inversion, cases, rewri
 xrewrite, krewrite, blast, simp, esimp, unfold, change, check_expr, contradiction,
 exfalso, split, existsi, constructor, fconstructor, left, right, injection, congruence, reflexivity,
 symmetry, transitivity, state, induction, induction_using, fail, append,
-substvars, now, with_options, with_attributes, with_attrs, note,
-reducible
+substvars, now, with_options, with_attributes, with_attrs, note
 },
 
 % modifiers, taken from lean-syntax.el
-% note: 'otherkeywords' is needed because these use a different symbol.
-% this command doesn't allow us to specify a number -- they are put with [1]
-% otherkeywords={
-% [persistent], [notation], [visible], [instance], [trans_instance],
-% [class], [parsing-only], [coercion], [unfold_full], [constructor],
-% [reducible], [irreducible], [semireducible], [quasireducible], [wf],
-% [whnf], [multiple_instances], [none], [decl], [declaration],
-% [relation], [symm], [subst], [refl], [trans], [simp], [congr], [unify],
-% [backward], [forward], [no_pattern], [begin_end], [tactic], [abbreviation],
-% [reducible], [unfold], [alias], [eqv], [intro], [intro!], [elim], [grinder],
-% [localrefinfo], [recursor]
-% },
+morekeywords=[4]{
+persistent, notation, visible, instance, trans_instance,
+class, parsing-only, coercion, unfold_full, constructor,
+reducible, irreducible, semireducible, quasireducible, wf,
+whnf, multiple_instances, none, decl, declaration,
+relation, symm, subst, refl, trans, simp, congr, unify,
+backward, forward, no_pattern, begin_end, tactic, abbreviation,
+reducible, unfold, alias, eqv, intro, intro!, elim, grinder,
+localrefinfo, recursor, derive
+},
 
 % Comments
 morecomment=[l][\rmfamily]{--},
@@ -107,7 +104,7 @@ keywordstyle=[2]{\ttfamily\color{sortcolor}},
 keywordstyle=[3]{\ttfamily\color{tacticcolor}},
 
 % Style for attributes
-% keywordstyle=[4]{\ttfamily\color{attributecolor}},
+keywordstyle=[4]{\ttfamily\color{attributecolor}},
 
 % Style for strings
 stringstyle=\ttfamily,

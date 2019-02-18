@@ -77,7 +77,7 @@ def param_type {m : method_name self} (p : param_name m)
   : type α := (((signature.cdef self).mdecl m).pdecl p).type
 def field_type (f : field_name self) : type α :=
   ((signature.cdef self).fdecl f).type
-def constructor (self : class_name α) : method_name self :=
+def ctor (self : class_name α) : method_name self :=
   (signature.cdef self).ctor
 def class_type (self : class_name α) : type α :=
   (ref self)
@@ -117,8 +117,8 @@ end
 /- A pure expression within a typing environment is either: a constant data value, a function application on data values, value lookup in environment, referential equality check. -/
 inductive pexp (e : tenv self) : type α → Type 1
 | const {γ : datatype}: γ → pexp (data α γ)
-| apply {γ δ : datatype}: (γ.host → δ.host) → pexp (data α γ) →
-    pexp (data α δ)
+| app {γ δ : datatype}: (γ.host → δ.host) →
+    pexp (data α γ) → pexp (data α δ)
 | lookup {ty : type α}: rvar e ty → pexp ty
 | requal {c : class_name α}:
     pexp (ref c) → pexp (ref c) → pexp (boolean α)
@@ -134,12 +134,12 @@ inductive stmt (e : tenv self) : bool → Type 1
 | assign {ty : type α} (l : svar e ty):
     pexp e ty → stmt ff
 | async (c : class_name α) (m : method_name c)
-    (H : m ≠ constructor c)
+    (H : m ≠ ctor c)
     (o : rvar e (ref c))
     (τ : arglist e m): stmt ff
 | alloc (c : class_name α)
     (l : svar e (ref c))
-    (τ : arglist e (constructor c)): stmt ff
+    (τ : arglist e (ctor c)): stmt ff
 | nil: stmt tt
 | cons: stmt ff → stmt tt → stmt tt
 /- The encoding of a nested inductive type failed at the moment in Lean 3.4.2. Instead, we encode the nesting ourselves: the boolean argument determines which constructors are applicable. It is true if it is a list of statements, false if it is a single statement (thanks to Mario Carneiro).  -/

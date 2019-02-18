@@ -11,8 +11,9 @@
 \usepackage{color}
 \definecolor{keywordcolor}{rgb}{0.7, 0.1, 0.1}
 \definecolor{symbolcolor}{rgb}{0.0, 0.1, 0.6}
-\definecolor{tacticcolor}{rgb}{0.7, 0.1, 0.6}
 \definecolor{sortcolor}{rgb}{0.1, 0.5, 0.1}
+\definecolor{tacticcolor}{rgb}{0.7, 0.1, 0.6}
+\definecolor{attributecolor}{rgb}{0.6, 0.5, 0.1}
 
 \usepackage{listings}
 \def\lstlanguagefiles{lstlean.tex}

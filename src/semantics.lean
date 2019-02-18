@@ -265,7 +265,7 @@ def eval (σ : Σ(C)) (π : active_process e) :
 | bool (requal l r) := value.term $ to_bool (eval l = eval r)
 | _ (lookup r) := π.lookup σ r
 | _ (const _ v) := value.term v
-| _ (apply f r) := value.term $ f (eval r).unterm
+| _ (app f r) := value.term $ f (eval r).unterm
 /- Evaluating an argument list to an argument space. -/
 def evallist (σ : Σ(C)) (π : active_process e)
     {c : class_name α} {m : method_name c} : arglist e m → Σ(m)
@@ -291,7 +291,7 @@ structure local_config (β : Type) [objects α β]
   (C : class_name α) := (σ : Σ(C)) (m : process C)
 
 open stmt process svar rvar
-set_option trace.check true
+
 /- A step is taken on a local configuration. -/
 def local_config.step : local_config β C →
     option ((local_config β C) × option (event α β))
@@ -343,11 +343,11 @@ def local_config.step : local_config β C →
 | ⟨σ, active env π@⟨τ,ℓ,(alloc c (fvar f) τ' :: t)⟩⟩ :=
     let ⟨o, new⟩ := θ.fresh c in
       some ⟨⟨σ.updatev f new, active env ⟨τ,ℓ,t⟩⟩,
-        event.call σ.id ⟨o,constructor c,evallist σ π τ'⟩⟩
+        event.call σ.id ⟨o,ctor c,evallist σ π τ'⟩⟩
 | ⟨σ, active env π@⟨τ,ℓ,(alloc c (lvar ⟨l⟩) τ' :: t)⟩⟩ :=
     let ⟨o, new⟩ := θ.fresh c in
       some ⟨⟨σ, active env ⟨τ,ℓ.update l new,t⟩⟩,
-        event.call σ.id ⟨o,constructor c,evallist σ π τ'⟩⟩
+        event.call σ.id ⟨o,ctor c,evallist σ π τ'⟩⟩
 
 /- A global configuration is a finite set of object configurations and a global history. -/
 structure global_config (α β : Type) [objects α β] :=
