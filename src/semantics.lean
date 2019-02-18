@@ -38,6 +38,10 @@ instance value.inhabited [objects α β] :
 def value.unterm [objects α β] {r : record_name α} :
     Π (x : value (type.data r)), data_Type r
 | (value.term t) := t
+-- Projection of boolean value to bool
+def value.unbool [objects α β] :
+  Π (x : value (boolean α)), bool
+| (value.term t) := cast (eq.symm data_Type_eq_bool) t
 -- Projection of value to potential object
 def value.unobject {c : class_name α} :
     Π (x : value (type.ref c)), option β
@@ -329,13 +333,13 @@ def local_config.step : local_config α β → local_result α β
 | ⟨C, σ, active _ ⟨τ,ℓ,nil⟩⟩ := internal_step ⟨C, σ, nil _⟩
 /- Otherwise, there is a current statement. If the current statement is an if statement, for which we evaluate the boolean pure expression. If it is true, we replace the current statement by those of the then-branch. Otherwise, we replace the current statement by those of the else-branch. -/
 | ⟨C, σ, active env π@⟨τ,ℓ,(ite p thenb elseb :: t)⟩⟩ :=
-    internal_step $ match (eval σ π p).unterm with
+    internal_step $ match (eval σ π p).unbool with
     | tt := ⟨C, σ, active env ⟨τ,ℓ,to_list thenb ++ t⟩⟩
     | ff := ⟨C, σ, active env ⟨τ,ℓ,to_list elseb ++ t⟩⟩
     end
 /- Otherwise, there is a while statement. We evaluate the boolean pure expression. If it is true, we prepend the body to all statements, before but including the current while statement. Otherwise, we discard the current statement. -/
 | ⟨C, σ, active env π@⟨τ,ℓ,S@(while p dob :: t)⟩⟩ :=
-    internal_step $ match (eval σ π p).unterm with
+    internal_step $ match (eval σ π p).unbool with
     | tt := ⟨C, σ, active env ⟨τ,ℓ,to_list dob ++ S⟩⟩
     | ff := ⟨C, σ, active env ⟨τ,ℓ,t⟩⟩
     end
