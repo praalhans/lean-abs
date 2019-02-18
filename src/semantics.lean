@@ -1,12 +1,12 @@
 /- Copyright 2019 (c) Hans-Dieter Hiep. All rights reserved. Released under MIT license as described in the file LICENSE. -/
 
-import syntax data.finsupp
+import syntax data.finsupp data.fintype
 
 universe u
 
-open signature type pexp nat list
+open signature nat list pexp
 
-/- Fix a signature (and global names). We treat object identities transparently. Each object identity is associated to a single class name. Given a finite set of object identities, there can always be a fresh object identity not in that set (thanks to Johannes Hölzl). Allocation of a fresh object results in an object with the same class name as allocated. Equality is decidable for objects. -/
+/- Fix a signature. We treat object identities transparently. Each object identity is associated to a single class name. Given a finite set of object identities, there can always be a fresh object identity not in that set (thanks to Johannes Hölzl). Allocation of a fresh object results in an object with the same class name as allocated. Equality is decidable for objects. -/
 class objects (α β : Type) extends signature α :=
 (alloc: finset β → class_name α → β)
 (class_of: β → class_name α)
@@ -26,45 +26,46 @@ instance objects.decidable : decidable_eq β :=
 /- We treat values as being of a type. A value of a reference type is an object of the same class, or null. A value of a data type is a term of the type in the host language. -/
 @[derive decidable_eq]
 inductive value [objects α β] : type α → Type 1
-| object {c : class_name α}
-    (o : {o : β // c = class_of α o}) : value (ref c)
-| null (c : class_name α) : value (ref c)
-| term {γ : datatype} : γ → value (data α γ)
+| object {c : class_name α} :
+    {o : β // c = class_of α o} → value (type.ref c)
+| null (c : class_name α) : value (type.ref c)
+| term {r : record_name α} : data_Type r → value (type.data r)
 instance value.inhabited [objects α β] :
     Π{ty : type α}, inhabited (value ty)
-| (ref c) := ⟨value.null c⟩
-| (data .(α) γ) := ⟨value.term γ.default⟩
+| (type.ref c) := ⟨value.null c⟩
+| (type.data r) := ⟨value.term (data_default r)⟩
 -- Projection of value to term
-def value.unterm [objects α β] {γ : datatype} :
-    Π (x : value (data α γ)), γ.host
+def value.unterm [objects α β] {r : record_name α} :
+    Π (x : value (type.data r)), data_Type r
 | (value.term t) := t
 -- Projection of value to potential object
 def value.unobject {c : class_name α} :
-    Π (x : value (ref c)), option β
+    Π (x : value (type.ref c)), option β
 | (value.object o) := o
 | (value.null _) := none
 def value.not_null [objects α β] {c : class_name α}
-  (x : value (ref c)) : Prop := x ≠ value.null c
+  (x : value (type.ref c)) : Prop := x ≠ value.null c
 -- Projection of not-null value to object identity
 def value.the_object {c : class_name α} :
-    Π (x : value (ref c)), value.not_null x → β
+    Π (x : value (type.ref c)), value.not_null x → β
 | (value.object o) _ := o
 | (value.null .(c)) G := begin exfalso, apply G, refl end
 lemma value.class_of_the_object [objects α β] {c : class_name α}
-  {x : value (ref c)} (G : value.not_null x) :
+  {x : value (type.ref c)} (G : value.not_null x) :
   class_of α (value.the_object x G) = c :=
 begin
   cases x,
   {unfold value.the_object, apply eq.symm,
    simp [coe,lift_t,has_lift_t.lift],
    simp [coe_t,has_coe_t.coe,coe_b,has_coe.coe],
-   exact x_o.property},
+   exact x_a.property},
   {exfalso, apply G, refl}
 end
 -- Projection of value to object
 def value.elim_object {γ : Sort u} {c : class_name α}
-    (v : value (ref c)) (f : Π(o : {o : β // c = class_of α o}),
-    v = value.object o → γ) (g : v = value.null c → γ) : γ :=
+    (v : value (type.ref c))
+    (f : Π(o : {o : β // c = class_of α o}),
+      v = value.object o → γ) (g : v = value.null c → γ) : γ :=
   match v, rfl : (∀ b, v = b → γ) with
   | (value.object o), h := f o h
   | (value.null .(c)), h := g h
@@ -78,6 +79,7 @@ structure arg_space [objects α β]
 notation Σ(m) := arg_space m
 
 /- Given a list of types, we have a value list of values with matching types. -/
+@[derive decidable_eq]
 inductive vallist [objects α β] : list (type α) → Type 1
 | nil : vallist []
 | cons {ty : type α} {l : list (type α)} :
@@ -219,13 +221,11 @@ def global_history.collect
     (θ : global_history α β) : finset β :=
   to_finset (foldr (λ(e : event α β) l, e.o :: l) [] θ)
 def global_history.fresh (θ : global_history α β)
-    (c : class_name α) :
-      {o : β // c = class_of α o} × value (ref c) :=
+    (c : class_name α) : {o : β // c = class_of α o} :=
   let o := alloc (θ.collect) c,
     H : c = class_of α o := begin
-      apply eq.symm, apply alloc_class_of end,
-    oH : {o:β // c = class_of α o} := ⟨o,H⟩
-  in ⟨oH, value.object oH⟩
+      apply eq.symm, apply alloc_class_of end
+  in ⟨o,H⟩
 
 /- An active process consists of: an argument space (of the current method), a value list (of the local variables), and a list of statements. -/
 variables {C : class_name α} {e : tenv C}
@@ -233,9 +233,10 @@ structure active_process (e : tenv C) :=
   (args : Σ(e.current)) (store : vallist e.locals)
   (body : list (statement e))
 /- For class C we have a state space Σ(C) consisting of a this identity and an assignment of fields to values. -/
+@[derive decidable_eq]
 structure state_space [objects α β] (self : class_name α) :=
   (map (f : field_name self) : value (field_type f))
-  (this : value (ref self))
+  (this : value (type.ref self))
   (N : value.not_null this)
 def state_space.id [objects α β] {self : class_name α}
   (σ : state_space self) : β := value.the_object σ.this σ.N
@@ -262,7 +263,8 @@ def active_process.lookup (σ : Σ(C)) (π : active_process e)
 /- Evaluating a pure expression, Val(p)(σ,π). -/
 def eval (σ : Σ(C)) (π : active_process e) :
     Π {ty : type α}, pexp e ty → value ty
-| bool (requal l r) := value.term $ to_bool (eval l = eval r)
+| bool (requal l r) := value.term $
+    cast data_Type_eq_bool $ to_bool (eval l = eval r)
 | _ (lookup r) := π.lookup σ r
 | _ (const _ v) := value.term v
 | _ (app f r) := value.term $ f (eval r).unterm
@@ -287,17 +289,27 @@ def process.activate (C : class_name α) (m : method_name C)
     (τ : Σ(m)) : process C :=
   process.active (p.body m).tenv ⟨τ,default _,(p.body m).S⟩
 /- A local configuration is an object and its process. -/
-structure local_config (β : Type) [objects α β]
-  (C : class_name α) := (σ : Σ(C)) (m : process C)
+structure local_config (α β : Type) [objects α β]
+  := (C : class_name α) (σ : Σ(C)) (m : process C)
 
 open stmt process svar rvar
 
+/- A local result is the result of taking a step at a local configuration. -/
+inductive local_result (α β : Type) [objects α β]
+| crash: local_result
+| no_step: local_result
+| internal_step: local_config α β → local_result
+| external_step: local_config α β → event α β → local_result
+
+open local_result
+
 /- A step is taken on a local configuration. -/
-def local_config.step : local_config β C →
-    option ((local_config β C) × option (event α β))
+def local_config.step : local_config α β → local_result α β
 /- If the process is inactive, we obtain a pending method call. If no method call is pending, no step is taken. Otherwise, the next local configuration is an active process with the arguments of the selected method, a default store, and the body of the method as statement; additionally, a selection event is generated. -/
-| ⟨σ, nil .(C)⟩ := let e := θ.sched σ.id in
-    option.elim e (λ_, none) (λd h, callsite.elim d (λc o m τ g,
+| ⟨C, σ, nil .(C)⟩ := let e := θ.sched σ.id in
+    option.elim e
+      (λ_, no_step α β)
+      (λd h, callsite.elim d (λc o m τ g,
       let p := activate p c m τ,
         G : process c = process C := begin
           have : (θ.sched σ.id) = some ⟨o, m, τ⟩,
@@ -312,44 +324,56 @@ def local_config.step : local_config β C →
           rewrite ← this,
           rewrite state_space.class_of_id
         end
-      in some ⟨⟨σ, cast G p⟩, event.selection d⟩))
+      in external_step ⟨C, σ, cast G p⟩ (event.selection d)))
 /- Otherwise, there is an active process. We look at the list of statements. If the list is empty, the process becomes inactive. -/
-| ⟨σ, active _ ⟨τ,ℓ,nil⟩⟩ :=
-    some ⟨⟨σ, nil _⟩, none⟩
+| ⟨C, σ, active _ ⟨τ,ℓ,nil⟩⟩ := internal_step ⟨C, σ, nil _⟩
 /- Otherwise, there is a current statement. If the current statement is an if statement, for which we evaluate the boolean pure expression. If it is true, we replace the current statement by those of the then-branch. Otherwise, we replace the current statement by those of the else-branch. -/
-| ⟨σ, active env π@⟨τ,ℓ,(ite p thenb elseb :: t)⟩⟩ :=
-    some $ match (eval σ π p).unterm with
-    | tt := ⟨⟨σ, active env ⟨τ,ℓ,to_list thenb ++ t⟩⟩, none⟩
-    | ff := ⟨⟨σ, active env ⟨τ,ℓ,to_list elseb ++ t⟩⟩, none⟩
+| ⟨C, σ, active env π@⟨τ,ℓ,(ite p thenb elseb :: t)⟩⟩ :=
+    internal_step $ match (eval σ π p).unterm with
+    | tt := ⟨C, σ, active env ⟨τ,ℓ,to_list thenb ++ t⟩⟩
+    | ff := ⟨C, σ, active env ⟨τ,ℓ,to_list elseb ++ t⟩⟩
     end
 /- Otherwise, there is a while statement. We evaluate the boolean pure expression. If it is true, we prepend the body to all statements, before but including the current while statement. Otherwise, we discard the current statement. -/
-| ⟨σ, active env π@⟨τ,ℓ,S@(while p dob :: t)⟩⟩ :=
-    some $ match (eval σ π p).unterm with
-    | tt := ⟨⟨σ, active env ⟨τ,ℓ,to_list dob ++ S⟩⟩, none⟩
-    | ff := ⟨⟨σ, active env ⟨τ,ℓ,t⟩⟩, none⟩
+| ⟨C, σ, active env π@⟨τ,ℓ,S@(while p dob :: t)⟩⟩ :=
+    internal_step $ match (eval σ π p).unterm with
+    | tt := ⟨C, σ, active env ⟨τ,ℓ,to_list dob ++ S⟩⟩
+    | ff := ⟨C, σ, active env ⟨τ,ℓ,t⟩⟩
     end
 /- Otherwise, we consider the assignment statement. We evaluate the pure expression, and the result is taken to update the variable on the left-hand side: if it is a field then the object space field state is updated, otherwise it is a local and the store is updated. In both cases, the current statement is discarded. -/
-| ⟨σ, active env π@⟨τ,ℓ,(assign (fvar f) p :: t)⟩⟩ :=
-    some ⟨⟨σ.updatev f (eval σ π p), active env ⟨τ,ℓ,t⟩⟩, none⟩
-| ⟨σ, active env π@⟨τ,ℓ,(assign (lvar ⟨l⟩) p :: t)⟩⟩ :=
-    some ⟨⟨σ, active env ⟨τ,ℓ.update l (eval σ π p),t⟩⟩, none⟩
+| ⟨C, σ, active env π@⟨τ,ℓ,(assign (fvar f) p :: t)⟩⟩ :=
+    internal_step
+      ⟨C, σ.updatev f (eval σ π p), active env ⟨τ,ℓ,t⟩⟩
+| ⟨C, σ, active env π@⟨τ,ℓ,(assign (lvar ⟨l⟩) p :: t)⟩⟩ :=
+    internal_step
+      ⟨C, σ, active env ⟨τ,ℓ.update l (eval σ π p),t⟩⟩
 /- Otherwise, we have an async statement. We evaluate the argument list to a value list; the object pure expression is evaluated to an object value. If that value is null, no step is taken. Otherwise, we generate a method selection event with our object as caller and the appropriate call site, and discard the current statement. -/
-| ⟨σ, active env π@⟨τ,ℓ,(async c m G o τ' :: t)⟩⟩ :=
+| ⟨C, σ, active env π@⟨τ,ℓ,(async c m G o τ' :: t)⟩⟩ :=
     (π.lookup σ o).elim_object
-      (λo h, some ⟨⟨σ,active env ⟨τ,ℓ,t⟩⟩,
-        event.call σ.id ⟨o,m,evallist σ π τ'⟩⟩)
-      (λ_, none)
+      (λo h, external_step ⟨C, σ,active env ⟨τ,ℓ,t⟩⟩
+        (event.call σ.id ⟨o,m,evallist σ π τ'⟩))
+      (λ_, crash α β)
 /- Otherwise, we have an alloc statement. We evaluate the argument list to a value list. A fresh object identity is obtained from the global history, and stored in the variable. A call event to the constructor of the freshly obtained object is generated with an approriate call site, and the current statement is discarded. -/
-| ⟨σ, active env π@⟨τ,ℓ,(alloc c (fvar f) τ' :: t)⟩⟩ :=
-    let ⟨o, new⟩ := θ.fresh c in
-      some ⟨⟨σ.updatev f new, active env ⟨τ,ℓ,t⟩⟩,
-        event.call σ.id ⟨o,ctor c,evallist σ π τ'⟩⟩
-| ⟨σ, active env π@⟨τ,ℓ,(alloc c (lvar ⟨l⟩) τ' :: t)⟩⟩ :=
-    let ⟨o, new⟩ := θ.fresh c in
-      some ⟨⟨σ, active env ⟨τ,ℓ.update l new,t⟩⟩,
-        event.call σ.id ⟨o,ctor c,evallist σ π τ'⟩⟩
+| ⟨C, σ, active env π@⟨τ,ℓ,(alloc c (fvar f) τ' :: t)⟩⟩ :=
+    let o := θ.fresh c, new := value.object o in
+      external_step ⟨C, σ.updatev f new, active env ⟨τ,ℓ,t⟩⟩
+        (event.call σ.id ⟨o,ctor c,evallist σ π τ'⟩)
+| ⟨C, σ, active env π@⟨τ,ℓ,(alloc c (lvar ⟨l⟩) τ' :: t)⟩⟩ :=
+    let o := θ.fresh c, new := value.object o in
+      external_step ⟨C, σ, active env ⟨τ,ℓ.update l new,t⟩⟩
+        (event.call σ.id ⟨o,ctor c,evallist σ π τ'⟩)
 
 /- A global configuration is a finite set of object configurations and a global history. -/
+@[derive decidable_eq]
 structure global_config (α β : Type) [objects α β] :=
-  (Γ (self : class_name α): finset (local_config β self))
+  (Γ: finset (local_config α β))
   (θ: global_history α β)
+/- A step is taken on a global configuration. -/
+def global_config.step : global_config α β →
+  finset (global_config α β)
+| ⟨Γ, θ⟩ := Γ.bind (λl : local_config α β,
+    match l.step p θ with
+    | crash .(α) .(β) := _
+    | no_step .(α) .(β) := ∅ 
+    | (internal_step l') := _
+    | (external_step l' e) := _
+    end)
