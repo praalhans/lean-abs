@@ -5,7 +5,7 @@ import util
 
 variable {α : Type}
 
-/- Each program has names. Names consist of a finite set of class names, a finite set of record names, and a finite set of symbol names. To each class name, there an associated finite set of field and method names. To each method name, there is an associated finite set of parameter names. There is a built-in record name, boolean. -/
+/- Each program has names. Names consist of a finite set of class names, a finite set of record names, and a finite set of symbol names. To each class name, there an associated finite set of field and method names. There is a built-in record name, boolean. -/
 class names (α : Type) :=
   (decidable_name: decidable_eq α)
   (Nc: finset α)
@@ -13,7 +13,6 @@ class names (α : Type) :=
   (Ns: finset α)
   (Nf {x : α} (H: x ∈ Nc): finset α)
   (Nm {x : α} (H: x ∈ Nc): finset α)
-  (Np {x : α} {H: x ∈ Nc} {y : α} (G : y ∈ Nm H): finset α)
   (Nboolean : α)
   (Hboolean : Nboolean ∈ Nr)
 instance names.decidable [names α]:
@@ -38,10 +37,6 @@ def field_name [names α] (self : class_name α) :=
 @[reducible]
 def method_name [names α] (self : class_name α) :=
   {name : α // name ∈ names.Nm self.property}
-@[reducible]
-def param_name [names α]
-    {self : class_name α} (m : method_name self) :=
-  {name : α // name ∈ names.Np m.property}
 
 /- A type in our object language is either: a reference type (by class name), or a data type (by record name). -/
 @[derive decidable_eq]
@@ -56,13 +51,9 @@ inductive type (α : Type) [names α]
   (type.data (boolean_name α))
 
 /- A class declaration (of some class self) consists of a map from field names to field declarations, a map from method names to method declarations, and a method name that indicates a constructor. A field declaration consists of a type. A method declaration consists of a map from parameter names to parameter declarations. A parameter declaration consists of a type. -/
-structure pdecl [names α]
-    {self : class_name α} {m : method_name self}
-    (p : param_name m) :=
-  (type : type α)
 structure mdecl [names α]
     {self : class_name α} (m : method_name self) :=
-  (pdecl (p : param_name m) : pdecl p)
+  (args : list (type α))
 structure fdecl [names α]
     {self : class_name α} (f : field_name self) :=
   (type : type α)
@@ -80,7 +71,7 @@ def sdecl.arity {α : Type} [names α] (s : sdecl α) :=
   list.length s.args
 
 /- A signature consists of: a map from class names to class declarations, a map from symbols names to symbol declarations, and a class name of the root object. -/
-class signature (α : Type) extends names α : Type 1 :=
+class signature (α : Type) extends names α :=
   (cdef (x : class_name α): cdecl x)
   (sdef (x : symbol_name α) : sdecl α)
   (main: class_name α)
@@ -89,8 +80,8 @@ variable [signature α]
 variable {self : class_name α}
 
 /- Each parameter is associated to a type, each field is associated to a type, and each class name is associated to a constructor method name. -/
-def param_type {m : method_name self} (p : param_name m)
-  : type α := (((signature.cdef self).mdecl m).pdecl p).type
+def param_types (m : method_name self) : list (type α) :=
+  ((signature.cdef self).mdecl m).args
 def field_type (f : field_name self) : type α :=
   ((signature.cdef self).fdecl f).type
 def ctor (self : class_name α) : method_name self :=
@@ -107,7 +98,10 @@ structure symbol (args : list (type α)) (result : type α)
 structure tenv (self : class_name α) :=
   (current : method_name self)
   (locals : context α)
-def tenv.self (e : tenv self) : class_name α := self
+def tenv.self (e : tenv self) : class_name α :=
+  self
+def tenv.args (e : tenv self) : list (type α) :=
+  param_types e.current
 
 /- A note on terminology. Parameter: as declared in signature. Argument: a pure expression as supplied in a method call, or as supplied to a function symbol. -/
 
@@ -122,7 +116,7 @@ structure lvar :=
   (idx : list_at ty e.locals)
 @[derive decidable_eq]
 structure pvar :=
-  (idx : param_name e.current) (H : param_type idx = ty)
+  (idx : list_at ty e.args)
 @[derive decidable_eq]
 structure fvar :=
   (idx : field_name e.self) (H : field_type idx = ty)
@@ -142,10 +136,10 @@ end
 
 /- A pure expression within a typing environment is either: a constant, a function application, value lookup in environment, referential equality check. -/
 @[derive decidable_eq]
-inductive pexp (e : tenv self) : list (type α) → Type 1
+inductive pexp (e : tenv self) : list (type α) → Type
 | const {ty : type α} {c : symbol_name α}:
     symbol [] ty c → pexp [ty]
-| app {l : list (type α)} {ty : type α} (f : symbol_name α):
+| app {l : list (type α)} {ty : type α} {f : symbol_name α}:
     symbol l ty f → pexp l → pexp [ty]
 | lookup {ty : type α}:
     rvar e ty → pexp [ty]
@@ -160,15 +154,9 @@ begin
   cases l, {intro, cases p}, {intro, cases a}
 end
 
-/- A method argument list assigns to each parameter of a method a pure expression within some typing environment of the right type. -/
-@[derive decidable_eq]
-structure marglist (e : tenv self)
-    {c : class_name α} (m : method_name c) :=
-  (map (p : param_name m) : pexp e [param_type p])
-
 /- A statement within a typing environment is either: a skip, a sequential composition, a branch, a loop, an assignment, an asynchronous method call, an object allocation. -/
 @[derive decidable_eq]
-inductive stmt (e : tenv self) : bool → Type 1
+inductive stmt (e : tenv self) : bool → Type
 | ite: pexp e [boolean α] → stmt tt → stmt tt → stmt ff
 | while: pexp e [boolean α] → stmt tt → stmt ff
 | assign {ty : type α} (l : svar e ty):
@@ -176,10 +164,10 @@ inductive stmt (e : tenv self) : bool → Type 1
 | async (c : class_name α) (m : method_name c)
     (H : m ≠ ctor c)
     (o : rvar e (type.ref c))
-    (τ : marglist e m): stmt ff
+    (τ : pexp e (param_types m)): stmt ff
 | alloc (c : class_name α)
     (l : svar e (type.ref c))
-    (τ : marglist e (ctor c)): stmt ff
+    (τ : pexp e (param_types (ctor c))): stmt ff
 | nil: stmt tt
 | cons: stmt ff → stmt tt → stmt tt
 /- The encoding of a nested inductive type failed at the moment in Lean 3.4.2. Instead, we encode the nesting ourselves: the boolean argument determines which constructors are applicable. It is true if it is a list of statements, false if it is a single statement (thanks to Mario Carneiro).  -/
