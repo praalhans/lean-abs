@@ -9,11 +9,13 @@ universes u v
 variables {α : Type u} {β : Type v}
 
 /- Indices of a list -/
+@[derive decidable_eq]
 inductive pointer: list α → Type u
 | here (x : α) (xs : list α): pointer (x :: xs)
 | tail {xs : list α} (y : α): pointer xs → pointer (y :: xs)
 
 /- List membership with concrete witness (position) -/
+@[derive decidable_eq]
 inductive list_at: α → list α → Type u
 | here (x : α) (xs : list α): list_at x (x :: xs)
 | tail {x : α} {l : list α} (y : α): list_at x l → list_at x (y :: l)

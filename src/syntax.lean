@@ -5,12 +5,12 @@ import util
 
 variable {α : Type}
 
-/- Each program has names. Names consist of a finite set of class names, and a finite set of record names, which are disjoint. To each class name, there an associated finite set of field and method names. To each method name, there is an associated finite set of parameter names. There is a built-in record name, bool. -/
+/- Each program has names. Names consist of a finite set of class names, a finite set of record names, and a finite set of symbol names. To each class name, there an associated finite set of field and method names. To each method name, there is an associated finite set of parameter names. There is a built-in record name, boolean. -/
 class names (α : Type) :=
   (decidable_name: decidable_eq α)
   (Nc: finset α)
   (Nr: finset α)
-  (Ndisjoint: disjoint Nc Nr)
+  (Ns: finset α)
   (Nf {x : α} (H: x ∈ Nc): finset α)
   (Nm {x : α} (H: x ∈ Nc): finset α)
   (Np {x : α} {H: x ∈ Nc} {y : α} (G : y ∈ Nm H): finset α)
@@ -26,6 +26,9 @@ def class_name (α : Type) [names α] :=
 @[reducible]
 def record_name (α : Type) [names α] :=
   {name : α // name ∈ names.Nr α}
+@[reducible]
+def symbol_name (α : Type) [names α] :=
+  {name : α // name ∈ names.Ns α}
 @[reducible]
 def boolean_name (α : Type) [names α] : record_name α :=
   ⟨names.Nboolean α, names.Hboolean α⟩
@@ -69,44 +72,35 @@ structure cdecl [names α] (self : class_name α) :=
   (mdecl (m : method_name self) : mdecl m)
   (ctor : method_name self)
   
-/- A record declaration is an inhabited type with decidable equality. -/
-structure rdecl :=
-  (host : Type)
-  (default: host)
-  (decidable_data: decidable_eq host)
-instance rdecl.to_sort : has_coe_to_sort rdecl :=
-  {S := Type, coe := λS, S.host}
-instance rdecl.host_decidable (γ : rdecl) :
-  decidable_eq γ := γ.decidable_data
-instance rdecl.host_inhabited (γ : rdecl) :
-  inhabited γ := ⟨γ.default⟩
+/- A symbol declaration consists of a list of types of arguments, together with a resultant type. The arity of a symbol declaration is the length of the list of argument types. -/
+structure sdecl (α : Type) [names α] :=
+  (args : list (type α))
+  (result : type α)
+def sdecl.arity {α : Type} [names α] (s : sdecl α) :=
+  list.length s.args
 
-/- A signature consists of: a map from class names to class declarations, a map from record names to record declarations, and a class name of the root object. The built-in boolean is associated to a datatype equal to Lean's bool with false as default value, and we know Lean's bool is decidable. -/
+/- A signature consists of: a map from class names to class declarations, a map from symbols names to symbol declarations, and a class name of the root object. -/
 class signature (α : Type) extends names α : Type 1 :=
   (cdef (x : class_name α): cdecl x)
-  (rdef (x : record_name α) : rdecl)
+  (sdef (x : symbol_name α) : sdecl α)
   (main: class_name α)
-  (boolean_is_bool: (bool = (rdef (boolean_name α)).host))
-  (boolean_default_false: (rdef (boolean_name α)).default =
-    cast boolean_is_bool ff)
 
 variable [signature α]
 variable {self : class_name α}
 
+/- Each parameter is associated to a type, each field is associated to a type, and each class name is associated to a constructor method name. -/
 def param_type {m : method_name self} (p : param_name m)
   : type α := (((signature.cdef self).mdecl m).pdecl p).type
 def field_type (f : field_name self) : type α :=
   ((signature.cdef self).fdecl f).type
 def ctor (self : class_name α) : method_name self :=
   (signature.cdef self).ctor
-def data_Type (r : record_name α) : Type :=
-  (signature.rdef r).host
-def data_default (r : record_name α) : data_Type r :=
-  (signature.rdef r).default
-lemma data_Type_eq_bool : bool = data_Type (boolean_name α) :=
-begin
-  unfold data_Type, apply signature.boolean_is_bool
-end
+/- A symbol with zero arity is a constant symbol, a symbol with non-zero arity is a function symbol. Each symbol is associated to a result type. A function symbol is associated to a list of argument types. -/
+@[derive decidable_eq]
+structure symbol (args : list (type α)) (result : type α)
+    (s : symbol_name α) :=
+  (H: args = (signature.sdef s).args)
+  (G: result = (signature.sdef s).result)
 
 /- Given a signature and an enclosing class, we consider type environments to consist of: a method name, and declared local variables. -/
 @[derive decidable_eq]
@@ -115,24 +109,30 @@ structure tenv (self : class_name α) :=
   (locals : context α)
 def tenv.self (e : tenv self) : class_name α := self
 
-/- A note on terminology. Parameter: as declared in signature. Argument: a pure expression as supplied in a method call. -/
+/- A note on terminology. Parameter: as declared in signature. Argument: a pure expression as supplied in a method call, or as supplied to a function symbol. -/
 
 /- Within a typing environment, we refer to numerous things. This refers to an object identity of the enclosed class. A local variable refers to the index within the declared local variables. A parameter refers to a parameter name of the current method. A field refers to a field within the enclosed class. -/
 section
 variables (e : tenv self) (ty : type α)
+@[derive decidable_eq]
 structure tvar :=
   (H : ty = type.ref e.self)
+@[derive decidable_eq]
 structure lvar :=
   (idx : list_at ty e.locals)
+@[derive decidable_eq]
 structure pvar :=
   (idx : param_name e.current) (H : param_type idx = ty)
+@[derive decidable_eq]
 structure fvar :=
   (idx : field_name e.self) (H : field_type idx = ty)
 -- Store variable (LHS only)
+@[derive decidable_eq]
 inductive svar
 | fvar: fvar e ty → svar
 | lvar: lvar e ty → svar
 -- Read variable (RHS only)
+@[derive decidable_eq]
 inductive rvar
 | tvar: tvar e ty → rvar
 | fvar: fvar e ty → rvar
@@ -140,38 +140,52 @@ inductive rvar
 | lvar: lvar e ty → rvar
 end
 
-/- A pure expression within a typing environment is either: a constant data value, a function application on data values, value lookup in environment, referential equality check. -/
-inductive pexp (e : tenv self) : type α → Type 1
-| const {r : record_name α}: data_Type r → pexp (type.data r)
-| app {r s : record_name α}: (data_Type r → data_Type s) →
-    pexp (type.data r) → pexp (type.data s)
-| lookup {ty : type α}: rvar e ty → pexp ty
+/- A pure expression within a typing environment is either: a constant, a function application, value lookup in environment, referential equality check. -/
+@[derive decidable_eq]
+inductive pexp (e : tenv self) : list (type α) → Type 1
+| const {ty : type α} {c : symbol_name α}:
+    symbol [] ty c → pexp [ty]
+| app {l : list (type α)} {ty : type α} (f : symbol_name α):
+    symbol l ty f → pexp l → pexp [ty]
+| lookup {ty : type α}:
+    rvar e ty → pexp [ty]
 | requal {c : class_name α}:
-    pexp (type.ref c) → pexp (type.ref c) → pexp (boolean α)
-/- An argument list assigns to each parameter of a method a variable within some typing environment of the right type. -/
-structure arglist (e : tenv self)
+    pexp [type.ref c] → pexp [type.ref c] → pexp [boolean α]
+| cons {ty : type α} {l : list (type α)}:
+    pexp [ty] → pexp l → pexp (ty::l)
+/- The encoding of a mutual inductive type fails in Lean 3.4.2. We currently encode this directly, by considering single expressions as expressions with a length one type list. Tuples of expressions are created by constructing lists of expressions of length one lists of types. There are no expressions of empty lists of types. -/
+lemma pexp_not_nil {e : tenv self} {l : list (type α)}
+  (p : pexp e l) : l ≠ [] :=
+begin
+  cases l, {intro, cases p}, {intro, cases a}
+end
+
+/- A method argument list assigns to each parameter of a method a pure expression within some typing environment of the right type. -/
+@[derive decidable_eq]
+structure marglist (e : tenv self)
     {c : class_name α} (m : method_name c) :=
-  (map (p : param_name m) : pexp e (param_type p))
+  (map (p : param_name m) : pexp e [param_type p])
 
 /- A statement within a typing environment is either: a skip, a sequential composition, a branch, a loop, an assignment, an asynchronous method call, an object allocation. -/
+@[derive decidable_eq]
 inductive stmt (e : tenv self) : bool → Type 1
-| ite: pexp e (boolean α) → stmt tt → stmt tt → stmt ff
-| while: pexp e (boolean α) → stmt tt → stmt ff
+| ite: pexp e [boolean α] → stmt tt → stmt tt → stmt ff
+| while: pexp e [boolean α] → stmt tt → stmt ff
 | assign {ty : type α} (l : svar e ty):
-    pexp e ty → stmt ff
+    pexp e [ty] → stmt ff
 | async (c : class_name α) (m : method_name c)
     (H : m ≠ ctor c)
     (o : rvar e (type.ref c))
-    (τ : arglist e m): stmt ff
+    (τ : marglist e m): stmt ff
 | alloc (c : class_name α)
     (l : svar e (type.ref c))
-    (τ : arglist e (ctor c)): stmt ff
+    (τ : marglist e (ctor c)): stmt ff
 | nil: stmt tt
 | cons: stmt ff → stmt tt → stmt tt
 /- The encoding of a nested inductive type failed at the moment in Lean 3.4.2. Instead, we encode the nesting ourselves: the boolean argument determines which constructors are applicable. It is true if it is a list of statements, false if it is a single statement (thanks to Mario Carneiro).  -/
-variable {e : tenv self}
 @[reducible]
 def statement (e : tenv self) := stmt e ff
+variable {e : tenv self}
 def stmt.from_list : list (statement e) → stmt e tt
 | [] := stmt.nil e
 | (x :: xs) := stmt.cons x (stmt.from_list xs)
