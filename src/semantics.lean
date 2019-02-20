@@ -402,7 +402,8 @@ def local_config.step {α β : Type} [interpret α β]
         ⟨τ,ℓ,stmt.to_list elseb ++ t⟩⟩
     end
 /- Otherwise, there is a while statement. We evaluate the boolean pure expression. If it is true, we prepend the body to all statements, before but including the current while statement. Otherwise, we discard the current statement. -/
-| ⟨C, σ, process.active env π@⟨τ,ℓ,S@(stmt.while p dob :: t)⟩⟩ :=
+| ⟨C, σ, process.active env
+      π@⟨τ,ℓ,S@(stmt.while p dob :: t)⟩⟩ :=
     internal_step $ match (eval σ π p).the.unbool with
     | tt := ⟨C, σ, process.active env
         ⟨τ,ℓ,stmt.to_list dob ++ S⟩⟩
