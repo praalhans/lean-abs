@@ -130,24 +130,14 @@ def vallist.lookup [objects α β] {ty : type α} :
 | (x :: xs) (vallist.cons v _) (list_at.here .(x) .(xs)) := v
 | (x :: xs) (vallist.cons _ ys) (list_at.tail .(x) zs) :=
     vallist.lookup ys zs
-
-/- For class C we have a state space Σ(C) consisting of a this identity and an assignment of fields to values. -/
-@[derive decidable_eq]
-structure state_space [objects α β] (self : class_name α) :=
-  (map (f : field_name self) : value (field_type f))
-  (this : value (type.ref self))
-  (N : value.not_null this)
-def state_space.id [objects α β] {self : class_name α}
-  (σ : state_space self) : β := value.the_object σ.this σ.N
-lemma state_space.class_of_id [objects α β]
-  {self : class_name α} (σ : state_space self) :
-  class_of α σ.id = self :=
-begin
-  unfold state_space.id, apply value.class_of_the_object
-end
-notation Σ(C) := state_space C
-
-/- A heap is a finite set of state spaces. TODO -/
+/- Given a value list and an index and a new value, we obtain a new value list which updates the given index. -/
+def vallist.update [objects α β] {ty : type α} :
+    Π {l : context α}, vallist l → list_at ty l →
+    value ty → vallist l
+| (x :: xs) (vallist.cons _ tl) (list_at.here .(x) .(xs)) v :=
+    vallist.cons v tl
+| (x :: xs) (vallist.cons v ys) (list_at.tail .(x) zs) w :=
+    vallist.cons v (vallist.update ys zs w)
 
 /- An event is either an asynchronous method call of some caller object to a callee object, its method, and for each parameter an argument value. Or, an event is a method selection. -/
 @[derive decidable_eq]
@@ -271,51 +261,75 @@ def global_history.fresh (θ : global_history α β)
       apply eq.symm, apply alloc_class_of end
   in ⟨o,H⟩
 
-/- An active process consists of: an argument space (of the current method), a value list (of the local variables), and a list of statements. -/
-variables {C : class_name α} {e : tenv C}
-structure active_process (e : tenv C) :=
-  (args : vallist e.args) (store : vallist e.locals)
-  (body : list (statement e))
-
-/- Given an object space and active process, we can lookup the value of a read variable. -/
-def active_process.lookup (σ : Σ(C)) (π : active_process e)
-    {tx : type α} : rvar e tx → value tx
-| (rvar.tvar t) := cast begin rewrite t.H, refl end σ.this
-| (rvar.fvar f) := cast begin rewrite f.H end $ σ.map f.idx
-| (rvar.pvar p) := π.args.lookup p.idx
-| (rvar.lvar l) := π.store.lookup l.idx
-/- Evaluating a pure expression to a list of values. -/
-def eval (σ : Σ(C)) (π : active_process e) :
-    Π {l : list (type α)}, pexp e l → vallist l
-| _ (pexp.requal l r) := vallist.single $ value.term $
-    cast data_type_booleanr $ to_bool (eval l = eval r)
-| _ (pexp.lookup r) := vallist.single (π.lookup σ r)
-| _ (pexp.const .(e) s) := _
-| _ (pexp.app f r) := _
-| _ (pexp.cons h t) := vallist.consl (eval h) (eval t)
-
+/- For class C we have a state space Σ(C) consisting of a this identity and an assignment of fields to values. -/
+@[derive decidable_eq]
+structure state_space [objects α β] (self : class_name α) :=
+  (map (f : field_name self) : value (field_type f))
+  (this : value (type.ref self))
+  (N : value.not_null this)
+def state_space.id [objects α β] {self : class_name α}
+  (σ : state_space self) : β := value.the_object σ.this σ.N
+lemma state_space.class_of_id [objects α β]
+  {self : class_name α} (σ : state_space self) :
+  class_of α σ.id = self :=
+begin
+  unfold state_space.id, apply value.class_of_the_object
+end
 /- A state space can be updated. -/
-def state_space.update
+def state_space.update [objects α β] {C : class_name α}
     (f : field_name C) (v : value (field_type f)) :
     state_space C → state_space C
 | ⟨map, this, N⟩ := ⟨λg, if H : f = g
     then cast begin rewrite H end v else map g,this,N⟩
 /- A state space can be updated, given a field variable in a typing environment related to the same class. -/
-def state_space.updatev {ty : type α}
-    (fvar : fvar e ty) (v : value ty) (σ : Σ(C)) : Σ(C) :=
+def state_space.updatev [objects α β]
+    {C : class_name α} {e : tenv C} {ty : type α}
+    (fvar : fvar e ty) (v : value ty)
+    (σ : state_space C) : state_space C :=
   σ.update fvar.idx (cast begin rewrite fvar.H end v)
-/- Given a value list and an index and a new value, we obtain a new value list which updates the given index. -/
-def vallist.update [objects α β] {ty : type α} :
-    Π {l : context α}, vallist l → list_at ty l →
-    value ty → vallist l
-| (x :: xs) (vallist.cons _ tl) (list_at.here .(x) .(xs)) v :=
-    vallist.cons v tl
-| (x :: xs) (vallist.cons v ys) (list_at.tail .(x) zs) w :=
-    vallist.cons v (vallist.update ys zs w)
+notation Σ(C) := state_space C
 
-/- We fix a program, and global history. -/
-variables (p : program α) (θ : global_history α β)
+/- An active process consists of: a value list (of the arguments of the current method), a value list (of the local variables), and a list of statements. -/
+@[derive decidable_eq]
+structure active_process [objects α β]
+    {C : class_name α} (e : tenv C) :=
+  (args : vallist e.args) (store : vallist e.locals)
+  (body : list (statement e))
+/- Given a state and active process, we can lookup the value of a read variable. -/
+def active_process.lookup [objects α β]
+    {C : class_name α} {e : tenv C}
+    (σ : Σ(C)) (π : active_process e)
+    {tx : type α} : rvar e tx → value tx
+| (rvar.tvar t) := cast begin rewrite t.H, refl end σ.this
+| (rvar.fvar f) := cast begin rewrite f.H end $ σ.map f.idx
+| (rvar.pvar p) := π.args.lookup p.idx
+| (rvar.lvar l) := π.store.lookup l.idx
+
+/- An interpretation consists of a mapping from constant symbols to values, and from function symbols to functions over value lists to values. -/
+class interpret (α β : Type) extends objects α β :=
+  (interp {args : list (type α)} {result : type α}
+    {s : symbol_name α} (sym : symbol args result s):
+    vallist args → value result)
+open interpret
+
+/- Evaluating a pure expression to a list of values. -/
+def eval {α β : Type} [interpret α β]
+    {C : class_name α} {e : tenv C}
+    (σ : Σ(C)) (π : active_process e) :
+    Π {l : list (type α)}, pexp e l → vallist l
+| _ (pexp.const .(e) sym) := vallist.single $
+    (interp sym) vallist.nil
+| _ (pexp.app f r) := vallist.single $
+    (interp f) (eval r)
+| _ (pexp.lookup r) := vallist.single (π.lookup σ r)
+| _ (pexp.equal l r) := vallist.single $ value.term $
+    cast data_type_booleanr $ to_bool (eval l = eval r)
+| _ (pexp.cons h t) := vallist.consl (eval h) (eval t)
+
+/- We fix a program. -/
+variables (p : program α)
 /- A process is either nil or an active process. -/
+@[derive decidable_eq]
 inductive process {α : Type} [objects α β] (C : class_name α)
 | nil : process
 | active (env : tenv C) (a : active_process env) : process
@@ -323,19 +337,21 @@ inductive process {α : Type} [objects α β] (C : class_name α)
 def process.activate (C : class_name α) (m : method_name C)
     (τ : vallist (param_types m)) : process C :=
   process.active (p.body m).tenv ⟨τ,default _,(p.body m).S⟩
+
 /- A local configuration is an object and its process. -/
+@[derive decidable_eq]
 structure local_config (α β : Type) [objects α β] :=
   (C : class_name α) (σ : Σ(C)) (m : process C)
-
 /- A local result is the result of taking a step at a local configuration. -/
 inductive local_result (α β : Type) [objects α β]
 | crash: local_result
 | no_step: local_result
 | internal_step: local_config α β → local_result
 | external_step: local_config α β → event α β → local_result
-
 open local_result
 
+/- We fix a global history. -/
+variable (θ : global_history α β)
 /- A step is taken on a local configuration. -/
 def local_config.step : local_config α β → local_result α β
 /- If the process is inactive, we obtain a pending method call. If no method call is pending, no step is taken. Otherwise, the next local configuration is an active process with the arguments of the selected method, a default store, and the body of the method as statement; additionally, a selection event is generated. -/

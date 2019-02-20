@@ -92,6 +92,8 @@ structure symbol (args : list (type α)) (result : type α)
     (s : symbol_name α) :=
   (H: args = (signature.sdef s).args)
   (G: result = (signature.sdef s).result)
+def symbol.name {args : list (type α)} {result : type α}
+    {s : symbol_name α} (sym : symbol args result s) := s
 
 /- Given a signature and an enclosing class, we consider type environments to consist of: a method name, and declared local variables. -/
 @[derive decidable_eq]
@@ -134,7 +136,8 @@ inductive rvar
 | lvar: lvar e ty → rvar
 end
 
-/- A pure expression within a typing environment is either: a constant, a function application, value lookup in environment, referential equality check. -/
+/- A pure expression within a typing environment is either: a constant, a function application, value lookup in environment, 
+equality check. -/
 @[derive decidable_eq]
 inductive pexp (e : tenv self) : list (type α) → Type
 | const {ty : type α} {c : symbol_name α}:
@@ -143,8 +146,8 @@ inductive pexp (e : tenv self) : list (type α) → Type
     symbol l ty f → pexp l → pexp [ty]
 | lookup {ty : type α}:
     rvar e ty → pexp [ty]
-| requal {c : class_name α}:
-    pexp [type.ref c] → pexp [type.ref c] → pexp [boolean α]
+| equal {ty : type α}:
+    pexp [ty] → pexp [ty] → pexp [boolean α]
 | cons {ty : type α} {l : list (type α)}:
     pexp [ty] → pexp l → pexp (ty::l)
 /- The encoding of a mutual inductive type fails in Lean 3.4.2. We currently encode this directly, by considering single expressions as expressions with a length one type list. Tuples of expressions are created by constructing lists of expressions of length one lists of types. There are no expressions of empty lists of types. -/
