@@ -131,3 +131,9 @@ instance decomp_finset.coe_finset [decidable_eq α]
   (rem: finset α) (elem: α) : has_coe (decomp_finset rem elem) (finset α) := ⟨λ_, rem ∪ {elem}⟩
 
 notation Γ `;;` x := decomp_finset Γ x
+
+/- Existence of a proof of a proposition implies that proposition. -/
+lemma exists_proof_prop (P Q : Prop) : (∃x : P, Q) → P :=
+begin
+  intro, cases a, assumption
+end

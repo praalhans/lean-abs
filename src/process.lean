@@ -2,6 +2,8 @@
 
 import history
 
+universe u
+
 open objects interpret
 
 /- For class C we have a state space Σ(C) consisting of a this identity and an assignment of fields to values. -/
@@ -85,16 +87,12 @@ def process.schedule {α β : Type} [interpret α β]
   callsite.elim d (λc o m τ g,
     let p := process.activate pr c m τ,
       G : process c = process C := begin
-        have : (θ.sched σ.id) = some ⟨o, m, τ⟩,
-          rw ← g, assumption,
-        have : state_space.id σ = o,
+        have F : state_space.id σ = o.val,
           apply eq.symm,
           apply global_history.sched_object θ (σ.id) ⟨o,m,τ⟩,
-          assumption,
+          rw ← g, apply H,
         rewrite o.property,
-        simp [coe,lift_t,has_lift_t.lift] at this,
-        simp [coe_t,has_coe_t.coe,coe_b,has_coe.coe] at this,
-        rewrite ← this,
+        rewrite ← F,
         rewrite state_space.class_of_id
       end
     in cast G p)

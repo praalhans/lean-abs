@@ -17,7 +17,7 @@ def callsite.elim {α β : Type} [objects α β] {γ : Sort u}
     (cs : callsite α β) (f : Π{c : class_name α}
       (o : {o : β // c = class_of α o})
       (m : method_name c) (τ : vallist (param_types m)),
-      cs = @callsite.mk α β _ c o m τ → γ) : γ :=
+      cs = ⟨o,m,τ⟩ → γ) : γ :=
   match cs, rfl : (∀ b, cs = b → γ) with
   | ⟨o,m,τ⟩, h := f o m τ h
   end
@@ -126,6 +126,7 @@ end
 def global_history.collect {α β : Type} [objects α β]
     (θ : global_history α β) : finset β :=
   to_finset (foldr (λ(e : event α β) l, e.o :: l) [] θ)
+@[reducible]
 def global_history.fresh {α β : Type} [objects α β]
     (o : β) (θ : global_history α β) : Prop :=
   o ∉ θ.collect

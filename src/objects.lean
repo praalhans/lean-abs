@@ -20,7 +20,8 @@ def datatype.default (d : datatype) : d.host :=
 
 class objects (α β : Type) extends signature α :=
 (class_of: β → class_name α)
-(decidable_object: decidable_eq β)
+(encodable_object: encodable β)
+(decidable_object: decidable_eq β) -- redundant
 (data_type: record_name α → datatype)
 (data_type_boolean:
   (data_type (boolean_name α)).host = bool)
@@ -34,6 +35,8 @@ lemma data_type_booleanr {α β : Type} [objects α β] :
 begin symmetry, apply data_type_boolean end
 instance objects.decidable_eq {α β : Type} [objects α β] :
   decidable_eq β := decidable_object α β
+instance objects.encodable {α β : Type} [objects α β] :
+  encodable β := encodable_object α β
 
 /- We treat values as being of a type. A value of a reference type is an object of the same class, or null. A value of a data type is a term of the associated type in Lean. -/
 @[derive decidable_eq]
@@ -68,14 +71,14 @@ def value.not_null {α β : Type} [objects α β]
   x ≠ value.null c
 -- Projection of not-null value to object identity
 def value.the_object {α β : Type} [objects α β]
-    {c : class_name α} : Π (x : value (type.ref c)),
+    {c : class_name α} : Π {x : value (type.ref c)},
     value.not_null x → β
 | (value.object o) _ := o
 | (value.null .(c)) G := begin exfalso, apply G, refl end
 lemma value.class_of_the_object {α β : Type} [objects α β]
   {c : class_name α} {x : value (type.ref c)}
   (G : value.not_null x) :
-  class_of α (value.the_object x G) = c :=
+  class_of α (value.the_object G) = c :=
 begin
   cases x,
   {unfold value.the_object, apply eq.symm,
@@ -84,15 +87,6 @@ begin
    exact x_a.property},
   {exfalso, apply G, refl}
 end
--- Projection of value to object
-def value.elim_object {α β : Type} [objects α β] {γ : Sort u}
-    {c : class_name α} (v : value (type.ref c))
-    (f : Π(o : {o : β // c = class_of α o}),
-      v = value.object o → γ) (g : v = value.null c → γ) : γ :=
-  match v, rfl : (∀ b, v = b → γ) with
-  | (value.object o), h := f o h
-  | (value.null .(c)), h := g h
-  end
 
 /- Given a list of types, we have a value list of values with matching types. -/
 @[derive decidable_eq]
