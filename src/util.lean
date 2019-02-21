@@ -3,7 +3,7 @@
 import data.finmap data.bool data.vector data.list data.multiset
 import data.finsupp
 
-open multiset nat option finset list
+open nat option finset list
 
 universes u v
 variables {α : Type u} {β : Type v}
@@ -99,7 +99,7 @@ end
 end finsupp
 
 /- Elimination and matching with equality (thanks to Rob Lewis) -/
-def option.elim {α : Type u} {β : Sort v} (t : option α)
+def option.elim {β : Sort v} (t : option α)
     (f : t = none → β) (g : Π(a : α), t = some a → β) : β :=
   match t, rfl : (∀ b, t = b → β) with
   | none, h := f h
@@ -107,14 +107,14 @@ def option.elim {α : Type u} {β : Sort v} (t : option α)
   end
 
 /- Lift list of options -/
-lemma head_lift_nil {α : Type u} {a : α} :
+lemma head_lift_nil {a : α} :
   head (lift (@nil α)) ≠ some a :=
 begin
   intro,
   simp [lift, has_lift.lift, default, inhabited.default] at a_1,
   assumption
 end
-lemma tail_lift_some {α : Type u} {hd a : α} {tl : list α} :
+lemma tail_lift_some {hd a : α} {tl : list α} :
   head (lift (list.cons hd tl)) = some a → hd = a :=
 begin
   intro,
@@ -122,3 +122,12 @@ begin
   simp [lift_t, has_lift_t.lift, coe_t, has_coe_t.coe] at a_1,
   assumption
 end
+
+/- Decomposition of finite set: a singleton and remainder set, such they are disjoint. A decomposition can be coerced to their union set. -/
+inductive decomp_finset [decidable_eq α]
+  (rem: finset α) (elem: α) : Type
+| mk: elem ∉ rem → decomp_finset
+instance decomp_finset.coe_finset [decidable_eq α]
+  (rem: finset α) (elem: α) : has_coe (decomp_finset rem elem) (finset α) := ⟨λ_, rem ∪ {elem}⟩
+
+notation Γ `;;` x := decomp_finset Γ x

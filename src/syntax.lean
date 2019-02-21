@@ -1,6 +1,5 @@
 /- Copyright 2019 (c) Hans-Dieter Hiep. All rights reserved. Released under MIT license as described in the file LICENSE. -/
 
-import data.fintype data.finmap data.bool data.vector data.list
 import util
 
 /- Each program has names. Names consist of a finite set of class names, a finite set of record names, and a finite set of symbol names. To each class name, there an associated finite set of field and method names. There is a built-in record name, boolean. -/
@@ -100,8 +99,10 @@ def symbol.name {α : Type} [signature α]
 structure tenv {α : Type} [signature α] (self : class_name α) :=
   (current : method_name self)
   (locals : context α)
+@[reducible]
 def tenv.self {α : Type} [signature α] {self : class_name α}
   (e : tenv self) : class_name α := self
+@[reducible]
 def tenv.args {α : Type} [signature α] {self : class_name α}
   (e : tenv self) : list (type α) := param_types e.current
 
@@ -138,7 +139,6 @@ inductive rvar {α : Type} [signature α] {self : class_name α}
 | fvar: fvar e ty → rvar
 | pvar: pvar e ty → rvar
 | lvar: lvar e ty → rvar
-end
 
 /- A pure expression within a typing environment is either: a constant, a function application, value lookup in environment, 
 equality check. -/
@@ -178,8 +178,8 @@ inductive stmt {α : Type} [signature α] {self : class_name α}
 | alloc (c : class_name α)
     (l : svar e (type.ref c))
     (τ : pexp e (param_types (ctor c))): stmt ff
-| nil: stmt tt
-| cons: stmt ff → stmt tt → stmt tt
+| skip: stmt tt
+| seq: stmt ff → stmt tt → stmt tt
 /- The encoding of a nested inductive type failed at the moment in Lean 3.4.2. Instead, we encode the nesting ourselves: the boolean argument determines which constructors are applicable. It is true if it is a list of statements, false if it is a single statement (thanks to Mario Carneiro).  -/
 @[reducible]
 def statement {α : Type} [signature α] {self : class_name α}
@@ -187,13 +187,13 @@ def statement {α : Type} [signature α] {self : class_name α}
 def stmt.from_list {α : Type} [signature α]
     {self : class_name α} {e : tenv self} :
     list (statement e) → stmt e tt
-| [] := stmt.nil e
-| (x :: xs) := stmt.cons x (stmt.from_list xs)
+| [] := stmt.skip e
+| (x :: xs) := stmt.seq x (stmt.from_list xs)
 def stmt.to_list {α : Type} [signature α]
     {self : class_name α} {e : tenv self} :
     stmt e tt → list (statement e)
-| (stmt.nil .(e)) := []
-| (stmt.cons x xs) := (x :: stmt.to_list xs)
+| (stmt.skip .(e)) := []
+| (stmt.seq x xs) := (x :: stmt.to_list xs)
 
 /- A program with a given program signature associates to each method of each class a program block. A program block associated to a method consists of: local variable declarations, and a statement within a typing environment. -/
 structure pblock {α : Type} [signature α]
