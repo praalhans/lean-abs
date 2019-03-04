@@ -15,7 +15,7 @@ structure state_space {α β : Type} [objects α β]
   (N : value.not_null this)
 def state_space.id {α β : Type} [objects α β]
     {self : class_name α} (σ : state_space self) : β :=
-  value.the_object σ.this σ.N
+  value.the_object σ.N
 lemma state_space.class_of_id {α β : Type} [objects α β]
   {self : class_name α} (σ : state_space self) :
   class_of α σ.id = self :=

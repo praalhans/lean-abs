@@ -176,7 +176,6 @@ inductive stmt {α : Type} [signature α] {self : class_name α}
     (o : rvar e (type.ref c))
     (τ : pexp e (param_types m)): stmt ff
 | alloc (c : class_name α)
-    (l : svar e (type.ref c))
     (τ : pexp e (param_types (ctor c))): stmt ff
 | skip: stmt tt
 | seq: stmt ff → stmt tt → stmt tt

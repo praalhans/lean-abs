@@ -56,57 +56,30 @@ def local_config.step {α β : Type} [interpret α β]
     end
 /- Otherwise, we have an alloc statement. We evaluate the argument list to a value list. A fresh object identity is obtained from the global history, and stored in the variable. A call event to the constructor of the freshly obtained object is generated with an approriate call site, and the current statement is discarded. -/
 | ⟨σ, process.active
-      π@⟨e,τ,ℓ,(stmt.alloc c (svar.fvar f) τ' :: t)⟩⟩ :=
+      π@⟨e,τ,ℓ,(stmt.alloc c τ' :: t)⟩⟩ :=
     λr : local_config C, ∃o : {o : β // c = class_of α o},
       θ.fresh o ∧ let new := value.object o in
-        r = ⟨σ.updatev f new, process.active ⟨e,τ,ℓ,t⟩⟩
-    -- TODO (event.call σ.id ⟨o,ctor c,eval σ π τ'⟩
-| ⟨σ, process.active 
-      π@⟨e,τ,ℓ,(stmt.alloc c (svar.lvar ⟨l⟩) τ' :: t)⟩⟩ :=
-    λr : local_config C, ∃o : {o // c = class_of α o},
-      θ.fresh o ∧ let new := value.object o in
-        r = ⟨σ, process.active ⟨e,τ,ℓ.update l new,t⟩⟩
-    -- TODO (event.call σ.id ⟨o,ctor c,eval σ π τ'⟩)
+        r = ⟨σ, process.active ⟨e,τ,ℓ,t⟩⟩
 
 /- Fact: after a local configuration takes a step that results in the allocation of an object, that object's identity is stored in the resulting local configuration. We have that object identities are encodable, and this crucially allows us to make use of constructive choice. -/
-def local_config.last_falloc {α β : Type} [interpret α β]
+def local_config.last_alloc {α β : Type} [interpret α β]
     {p : program α} {C : class_name α}
     {θ : global_history α β}
     (r : local_config C)
     {σ : Σ(C)} {e : tenv C} {τ : vallist (tenv.args e)}
     {ℓ : vallist (e.locals)}
-    {c : class_name α} {f : fvar e (type.ref c)}
+    {c : class_name α}
     {τ' : pexp e (param_types (ctor c))}
     {t : list (statement e)}
     (R : local_config.step p C θ ⟨σ, process.active
-      ⟨e,τ,ℓ,(stmt.alloc c (svar.fvar f) τ' :: t)⟩⟩ r) :
+      ⟨e,τ,ℓ,(stmt.alloc c τ' :: t)⟩⟩ r) :
     {o : β // c = class_of α o} :=
 begin
-  simp [local_config.step] at R, 
+  simp [local_config.step] at R,
   exact (let o := (encodable.choose R) in ⟨o, begin
-    have : θ.fresh o ∧ ∃(H : c = class_of α o), _,
+    have : c = class_of α o ∧ θ.fresh o ∧ r = _,
       apply encodable.choose_spec R,
-    cases this, cases this_right, assumption
-  end⟩)
-end
-def local_config.last_lalloc {α β : Type} [interpret α β]
-    {p : program α} {C : class_name α}
-    {θ : global_history α β}
-    (r : local_config C)
-    {σ : Σ(C)} {e : tenv C} {τ : vallist (tenv.args e)}
-    {ℓ : vallist (e.locals)}
-    {c : class_name α} {l : list_at (type.ref c) (e.locals)}
-    {τ' : pexp e (param_types (ctor c))}
-    {t : list (statement e)}
-    (R : local_config.step p C θ ⟨σ, process.active
-      ⟨e,τ,ℓ,(stmt.alloc c (svar.lvar ⟨l⟩) τ' :: t)⟩⟩ r) :
-    {o : β // c = class_of α o} :=
-begin
-  simp [local_config.step] at R, 
-  exact (let o := (encodable.choose R) in ⟨o, begin
-    have : θ.fresh o ∧ ∃(H : c = class_of α o), _,
-      apply encodable.choose_spec R,
-    cases this, cases this_right, assumption
+    cases this, assumption
   end⟩)
 end
 
@@ -124,19 +97,10 @@ match l, rfl : (∀ b, l = b → _) with
     | value.object o := (event.call σ.id ⟨o,m,eval σ π τ'⟩)
     end
 | ⟨σ, process.active
-      π@⟨e,τ,ℓ,(stmt.alloc c (svar.fvar f) τ' :: t)⟩⟩, H :=
+      π@⟨e,τ,ℓ,(stmt.alloc c τ' :: t)⟩⟩, H :=
     match r with
     | ⟨σ', process.active π'⟩ := let o :=
-          local_config.last_falloc r
-            (cast begin rewrite H end R) in
-        (event.call σ.id ⟨o,ctor c,eval σ π τ'⟩)
-    | _ := none
-    end
-| ⟨σ, process.active
-      π@⟨e,τ,ℓ,(stmt.alloc c (svar.lvar ⟨l⟩) τ' :: t)⟩⟩, H :=
-    match r with
-    | ⟨σ', process.active π'⟩ := let o :=
-          local_config.last_lalloc r
+          local_config.last_alloc r
             (cast begin rewrite H end R) in
         (event.call σ.id ⟨o,ctor c,eval σ π τ'⟩)
     | _ := none
