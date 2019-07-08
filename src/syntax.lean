@@ -71,7 +71,6 @@ def sdecl.arity {α : Type} [names α] (s : sdecl α) :=
 class signature (α : Type) extends names α :=
   (cdef (x : class_name α): cdecl x)
   (sdef (x : symbol_name α) : sdecl α)
-  (main: class_name α)
 
 /- Each parameter is associated to a type, each field is associated to a type, and each class name is associated to a constructor method name. -/
 def param_types {α : Type} [signature α] {self : class_name α}
@@ -204,3 +203,4 @@ def pblock.tenv {α : Type} [signature α] {self : class_name α}
   (tenv.mk m pb.locals)
 structure program (α : Type) [signature α] :=
   (body {self : class_name α} (m : method_name self): pblock m)
+  (main: class_name α)
