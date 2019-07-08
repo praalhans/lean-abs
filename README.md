@@ -1,6 +1,6 @@
 # Lean ABS
 
-Formalization of proof system for ABS in the Lean theorem prover.
+Formalization of ABS in the Lean theorem prover.
 
 # Set-up
 
